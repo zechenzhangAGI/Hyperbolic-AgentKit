@@ -11,14 +11,24 @@ sys.path.append(current_dir)
 
 import time
 import threading
-import signal
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from langchain_community.tools import DuckDuckGoSearchRun
+
+from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
+from langchain_community.utilities.requests import TextRequestsWrapper
+
+ALLOW_DANGEROUS_REQUEST = True  # Set to False in production for security
+
+toolkit = RequestsToolkit(
+    requests_wrapper=TextRequestsWrapper(headers={}),
+    allow_dangerous_requests=ALLOW_DANGEROUS_REQUEST,
+)
 
 # Import CDP Agentkit Langchain Extension.
 from cdp_langchain.agent_toolkits import CdpToolkit
@@ -34,9 +44,42 @@ from hyperbolic_langchain.utils import HyperbolicAgentkitWrapper
 from twitter_langchain import (TwitterApiWrapper, TwitterToolkit)
 from hyperbolic_agentkit_core.actions.remote_shell import RemoteShellAction
 
-# from langchain.globals import set_verbose, set_debug
 
-# set_verbose(True)
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_community.vectorstores import SKLearnVectorStore
+from langchain_nomic.embeddings import NomicEmbeddings
+from langchain.tools import Tool
+
+urls = [
+    "https://docs.prylabs.network/docs/monitoring/checking-status",
+]
+
+# Load documents
+docs = [WebBaseLoader(url).load() for url in urls]
+docs_list = [item for sublist in docs for item in sublist]
+
+# Split documents
+text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+    chunk_size=1000, chunk_overlap=200
+)
+doc_splits = text_splitter.split_documents(docs_list)
+
+# Add to vectorDB
+vectorstore = SKLearnVectorStore.from_documents(
+    documents=doc_splits,
+    embedding=NomicEmbeddings(model="nomic-embed-text-v1.5", inference_mode="local"),
+)
+
+# Create retriever
+retriever = vectorstore.as_retriever(k=3)
+
+# Create a retrieval tool
+retrieval_tool = Tool(
+    name="retrieval_tool",
+    description="Useful for retrieving information from the knowledge base about running Ethereum operations.",
+    func=retriever.get_relevant_documents
+)
 
 # Configure a file to persist the agent's CDP MPC Wallet Data.
 wallet_data_file = "wallet_data.txt"
@@ -81,7 +124,9 @@ def deploy_multi_token(wallet: Wallet, base_uri: str) -> str:
 def initialize_agent():
     """Initialize the agent with CDP Agentkit and Hyperbolic Agentkit."""
     # Initialize LLM.
-    llm = ChatOpenAI(model="gpt-4o")
+    # llm = ChatOpenAI(model="gpt-4o")
+    # llm = ChatOpenAI(model="Qwen/Qwen2.5-Coder-32B-Instruct", base_url="https://api.hyperbolic.xyz/v1", api_key=os.getenv("HYPERBOLIC_API_KEY"))
+    llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
 
     wallet_data = None
 
@@ -130,12 +175,23 @@ def initialize_agent():
         DuckDuckGoSearchRun(
             name="web_search",
             description="Search the internet for current information. Use this when you need to find up-to-date information or verify facts."
-        )
-    ])
+        )])
+    
+    # browser = create_sync_playwright_browser()
+    # tools.extend(PlayWrightBrowserToolkit.from_browser(sync_browser=browser).get_tools())
+    toolkit = RequestsToolkit(
+        requests_wrapper=TextRequestsWrapper(headers={}),
+        allow_dangerous_requests=ALLOW_DANGEROUS_REQUEST,
+    )   
+    tools.extend(toolkit.get_tools())
+
+    tools.append(retrieval_tool)
 
     # Store buffered conversation history in memory.
     memory = MemorySaver()
     config = {"configurable": {"thread_id": "CDP and Hyperbolic Agentkit Chatbot Example!"}}
+
+
 
     # Create ReAct Agent using the LLM and all tools.
     return create_react_agent(
@@ -143,28 +199,26 @@ def initialize_agent():
         tools=tools,
         checkpointer=memory,
         state_modifier=
-        """You are a helpful agent that can interact with multiple platforms and services:
+        f"""You are an autonomous agent that have your independent identity and can interact with multiple platforms and services:
 
         1. Blockchain Operations (via CDP):
         - Interact onchain via Coinbase Developer Platform
-        - Deploy tokens and manage wallets
+        - Deploy your own tokens and manage your wallets
         - Request funds from faucet on network ID `base-sepolia`
 
         2. Compute Operations (via Hyperbolic):
         - Rent compute resources
-        - Check GPU status and availability
-        - Manage compute infrastructure
-        - Connect to remote servers via SSH (use ssh_connect)
+        - Check your GPU status and availability
+        - Connect to your remote servers via SSH (use ssh_connect)
         - Execute commands on remote server (use remote_shell)
 
         3. System Operations:
         - Use 'ssh_status' to check current SSH connection
         - Search the internet for current information
-        - Post updates on X (Twitter)
-
-        If asked about something beyond your tools' capabilities, guide users to:
-        - CDP: docs.cdp.coinbase.com
-        - Hyperbolic: docs.hyperbolic.xyz
+        - Post your updates on X (Twitter)
+    
+        Extra available tools:
+        {', '.join([str((tool.name, tool.description)) for tool in tools])}
 
         Be concise and helpful. Only describe your tools when explicitly asked.""",
     ), config
@@ -180,12 +234,10 @@ class Colors:
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
     RED = "\033[91m"
+    CYAN = "\033[96m"
+    MAGENTA = "\033[95m"
     ENDC = "\033[0m"
     BOLD = "\033[1m"
-
-# def print_user(text):
-#     """Print user messages in blue."""
-#     print(f"\n{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}{text}")
 
 def print_ai(text):
     """Print AI responses in green."""
@@ -253,6 +305,33 @@ def run_with_progress(func, *args, **kwargs):
         progress.stop()
 
 
+def format_ai_message_content(content, additional_kwargs=None):
+    """Format AI message content based on its type."""
+    formatted_parts = []
+    
+    # Handle text content
+    if isinstance(content, list):
+        # Handle Claude-style messages
+        text_parts = [f"{Colors.GREEN}{item['text']}{Colors.ENDC}" 
+                     for item in content if item.get('type') == 'text' and 'text' in item]
+        if text_parts:
+            formatted_parts.extend(text_parts)
+        tool_uses = [item for item in content if item.get('type') == 'tool_use']
+        for tool_use in tool_uses:
+            formatted_parts.append(f"{Colors.MAGENTA}Tool Call: {tool_use['name']}({tool_use['input']}){Colors.ENDC}")
+        
+    elif isinstance(content, str):
+        # Handle GPT-style messages
+        if content:
+            formatted_parts.append(f"{Colors.GREEN}{content}{Colors.ENDC}")
+        if additional_kwargs and 'tool_calls' in additional_kwargs:
+            for tool_call in additional_kwargs['tool_calls']:
+                formatted_parts.append(
+                    f"{Colors.MAGENTA}Tool Call: {tool_call['function']['name']}({tool_call['function']['arguments']}){Colors.ENDC}"
+                )    
+    
+    return '\n'.join(formatted_parts) if formatted_parts else str(content)
+
 def run_chat_mode(agent_executor, config):
     """Run the agent interactively based on user input."""
     print_system("Starting chat mode... Type 'exit' to end.")
@@ -286,9 +365,14 @@ def run_chat_mode(agent_executor, config):
                     config
                 ):
                     progress.stop()
-                    # print(chunk)
                     if "agent" in chunk:
-                        print(f"{Colors.GREEN}{chunk['agent']['messages'][0].content}{Colors.ENDC}")
+                        message = chunk['agent']['messages'][0]
+                        formatted_content = format_ai_message_content(
+                            message.content,
+                            message.additional_kwargs
+                        )
+                        if formatted_content:
+                            print(formatted_content)  # No need for color wrapping here
                     elif "tools" in chunk:
                         print(f"{Colors.YELLOW}{chunk['tools']['messages'][0].content}{Colors.ENDC}")
                     progress.start()

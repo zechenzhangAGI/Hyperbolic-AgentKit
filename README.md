@@ -34,10 +34,16 @@ Blockchain Operations (via CDP):
    ```
 
 2. **API Keys**
-   - OpenAI API key from the [OpenAI Portal](https://platform.openai.com/api-keys)
+   - OpenAI API key from the [OpenAI Portal](https://platform.openai.com/api-keys) or Anthropic API key from the [Anthropic Portal](https://console.anthropic.com/dashboard)
    - CDP API credentials from [CDP Portal](https://portal.cdp.coinbase.com/access/api)
    - X Social API (Account Key and secret, Access Key and Secret)
    - Hyperbolic API Key from [Hyperbolic Portal](https://app.hyperbolic.xyz/settings)
+
+3. **Browser Automation**
+   - Install Playwright browsers after installing dependencies:
+   ```bash
+   poetry run playwright install
+   ```
 
 ## Quick Start
 
@@ -46,24 +52,7 @@ Blockchain Operations (via CDP):
    # Copy the example environment file
    cp .env.example .env
    ```
-   Then edit `.env` file and add your API keys:
-   ```bash
-   # OpenAI
-   OPENAI_API_KEY=your-openai-key
-   
-   # CDP
-   CDP_API_KEY_NAME=your-cdp-key-name
-   CDP_API_KEY_PRIVATE_KEY=your-cdp-private-key
-   
-   # Hyperbolic
-   HYPERBOLIC_API_KEY=your-hyperbolic-key
-   
-   # Twitter/X
-   TWITTER_API_KEY=your-twitter-api-key
-   TWITTER_API_SECRET=your-twitter-api-secret
-   TWITTER_ACCESS_TOKEN=your-twitter-access-token
-   TWITTER_ACCESS_TOKEN_SECRET=your-twitter-access-token-secret
-   ```
+   Then edit `.env` file and add your API keys
 
 2. **Install Dependencies**
    ```bash

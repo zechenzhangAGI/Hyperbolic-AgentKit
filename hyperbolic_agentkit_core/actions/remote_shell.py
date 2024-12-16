@@ -14,6 +14,7 @@ Important notes:
 - Use 'ssh_status' to check current connection status
 - Commands are executed in the connected SSH session
 - Returns command output as a string
+- You can install any packages you need on the remote server
 """
 
 class RemoteShellInput(BaseModel):
