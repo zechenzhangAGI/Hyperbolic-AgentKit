@@ -4,6 +4,7 @@ from hyperbolic_agentkit_core.actions.get_available_gpus import GetAvailableGpus
 from hyperbolic_agentkit_core.actions.get_gpu_status import GetGpuStatusAction
 from hyperbolic_agentkit_core.actions.ssh_access import SSHAccessAction
 from hyperbolic_agentkit_core.actions.remote_shell import RemoteShellAction
+from hyperbolic_agentkit_core.actions.get_spend_history import GetSpendHistoryAction
 from hyperbolic_agentkit_core.actions.terminate_compute import TerminateComputeAction
 
 
@@ -21,5 +22,5 @@ HYPERBOLIC_ACTIONS = get_all_hyperbolic_actions()
 
 __all__ = [
     "HYPERBOLIC_ACTIONS", "HyperbolicAction", "RentComputeAction", "GetAvailableGpusAction",
-    "GetGpuStatusAction", "SSHAccessAction", "RemoteShellAction", "TerminateComputeAction",
+    "GetGpuStatusAction", "SSHAccessAction", "RemoteShellAction", "TerminateComputeAction", "GetSpendHistoryAction"
 ]
