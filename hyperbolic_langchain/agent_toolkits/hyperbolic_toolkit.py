@@ -52,6 +52,7 @@ class HyperbolicToolkit(BaseToolkit):
             rent_compute
             get_available_gpus
             get_gpu_status
+            get_spend_history
             ssh_access
 
     Use within an agent:
