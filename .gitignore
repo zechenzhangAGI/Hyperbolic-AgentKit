@@ -53,3 +53,6 @@ id_rsa.pub
 wallet_data.txt
 .replit
 .python-version
+
+# Ignore SQLite database file
+twitter_state.db

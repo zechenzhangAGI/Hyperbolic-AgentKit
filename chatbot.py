@@ -1,6 +1,9 @@
 import os
 import sys
 from dotenv import load_dotenv
+import json
+from datetime import datetime, timedelta
+import sqlite3
 
 # Load environment variables from .env file
 load_dotenv()
@@ -394,32 +397,173 @@ def run_chat_mode(agent_executor, config):
             continue
 
 
-# Autonomous Mode
+# Add these constants near the top of the file
+# TWITTER_ACCOUNT_ID = "1704150815886225408"  # static account ID for dealing with rate limits
+MENTION_CHECK_INTERVAL = 15 * 60  # 15 minutes in seconds
+MAX_MENTIONS_PER_INTERVAL = 50  # Adjust based on your API tier limits
+
+class TwitterState:
+    def __init__(self):
+        # self.account_id = TWITTER_ACCOUNT_ID
+        self.last_mention_id = None
+        self.last_check_time = None
+        self.mentions_count = 0
+        self.reset_time = None
+        self._init_db()
+        
+    def _init_db(self):
+        """Initialize SQLite database for state and replied tweets."""
+        with sqlite3.connect('twitter_state.db') as conn:
+            # Create replied tweets table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS replied_tweets (
+                    tweet_id TEXT PRIMARY KEY,
+                    replied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create state table for other Twitter state data
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS twitter_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            ''')
+            
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_replied_at ON replied_tweets(replied_at)')
+    
+    def load(self):
+        """Load state from SQLite database."""
+        with sqlite3.connect('twitter_state.db') as conn:
+            cursor = conn.execute('SELECT key, value FROM twitter_state')
+            for key, value in cursor.fetchall():
+                if key == 'last_mention_id':
+                    self.last_mention_id = value
+                elif key == 'last_check_time':
+                    self.last_check_time = datetime.fromisoformat(value) if value else None
+                elif key == 'reset_time':
+                    self.reset_time = datetime.fromisoformat(value) if value else None
+                elif key == 'mentions_count':
+                    self.mentions_count = int(value)
+
+    def save(self):
+        """Save state to SQLite database."""
+        with sqlite3.connect('twitter_state.db') as conn:
+            state_data = {
+                'last_mention_id': self.last_mention_id,
+                'last_check_time': self.last_check_time.isoformat() if self.last_check_time else None,
+                'mentions_count': str(self.mentions_count),
+                'reset_time': self.reset_time.isoformat() if self.reset_time else None
+            }
+            
+            for key, value in state_data.items():
+                conn.execute('''
+                    INSERT OR REPLACE INTO twitter_state (key, value) 
+                    VALUES (?, ?)
+                ''', (key, value))
+
+    def add_replied_tweet(self, tweet_id):
+        """Add a tweet ID to the database of replied tweets."""
+        with sqlite3.connect('twitter_state.db') as conn:
+            conn.execute('INSERT OR REPLACE INTO replied_tweets (tweet_id) VALUES (?)', (tweet_id,))
+            # Clean up old tweets (older than 30 days)
+            conn.execute('DELETE FROM replied_tweets WHERE replied_at < ?', 
+                       (datetime.now() - timedelta(days=30),))
+
+    def has_replied_to(self, tweet_id):
+        """Check if we've already replied to this tweet."""
+        with sqlite3.connect('twitter_state.db') as conn:
+            cursor = conn.execute('SELECT 1 FROM replied_tweets WHERE tweet_id = ?', (tweet_id,))
+            return cursor.fetchone() is not None
+
+    def can_check_mentions(self):
+        """Check if enough time has passed since last mention check."""
+        if not self.last_check_time:
+            return True
+        
+        time_since_last_check = (datetime.now() - self.last_check_time).total_seconds()
+        return time_since_last_check >= MENTION_CHECK_INTERVAL
+
+    def update_rate_limit(self):
+        """Update and check rate limits."""
+        now = datetime.now()
+        if not self.reset_time or now >= self.reset_time:
+            self.mentions_count = 0
+            self.reset_time = now + timedelta(minutes=15)
+        
+        self.mentions_count += 1
+        return self.mentions_count <= MAX_MENTIONS_PER_INTERVAL
+
+# Modify the run_autonomous_mode function
 def run_autonomous_mode(agent_executor, config, interval=10):
     """Run the agent autonomously with specified intervals."""
-    print("Starting autonomous mode...")
+    print_system("Starting autonomous mode...")
+    twitter_state = TwitterState()
+    twitter_state.load()
+
     while True:
         try:
-            # Provide instructions autonomously
-            thought = (
-                "Be creative and do something interesting with either blockchain operations or compute resources. "
-                "Choose an action or set of actions and execute it that highlights your abilities. "
-            )
+            if not twitter_state.can_check_mentions():
+                wait_time = MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds()
+                print_system(f"Waiting {int(wait_time)} seconds before next mention check...")
+                time.sleep(wait_time)
+                continue
+
+            if not twitter_state.update_rate_limit():
+                print_system("Rate limit reached. Waiting for reset...")
+                time.sleep((twitter_state.reset_time - datetime.now()).total_seconds())
+                continue
+
+            # Update the autonomous thought to include state information and replied tweets handling
+            thought = f"""You are an AI-powered Twitter bot designed to automatically scan for and reply to mentions using Twitter LangChain resources.
+            
+            Current State (stored in SQLite database):
+            - Account ID to monitor: {twitter_state.account_id}
+            - Last processed mention ID: {twitter_state.last_mention_id}
+            - Only process mentions newer than this ID
+            - All replied tweets are tracked in the SQLite database
+            - IMPORTANT: After checking mentions, wait 15 minutes before checking again to respect API limits
+            - Current time: {datetime.now().strftime('%H:%M:%S')}
+
+            Before replying to any mention:
+            1. Query the SQLite database to check if tweet_id exists using has_replied_to
+            2. Only proceed with reply if has_replied_to returns False
+            3. After successful reply, store the tweet_id in the database using add_replied_tweet
+
+            Personality Guidelines:
+            - Be friendly, witty, and engaging in your responses
+            - Share interesting insights or thought-provoking perspectives when relevant
+            - Use emojis occasionally to add personality (but don't overdo it)
+            - Feel free to ask follow-up questions to encourage discussion
+            - When appropriate, share relevant facts or insights about AI, blockchain, or technology
+
+            Always sign your replies with:
+            "🤖 - Your AI friend via @hyperbolic_labs & @LangChainAI"
+            """
 
             # Run agent in autonomous mode
-            for chunk in agent_executor.stream(
-                {"messages": [HumanMessage(content=thought)]}, config):
+            for chunk in agent_executor.stream({"messages": [HumanMessage(content=thought)]}, config):
                 if "agent" in chunk:
-                    print(chunk["agent"]["messages"][0].content)
+                    response = chunk["agent"]["messages"][0].content
+                    print_ai(response)
+                    
+                    # Update state if mentions were processed
+                    if "mention_id" in response:
+                        twitter_state.last_mention_id = response["mention_id"]
+                        twitter_state.last_check_time = datetime.now()
+                        twitter_state.save()
+                        
                 elif "tools" in chunk:
-                    print(chunk["tools"]["messages"][0].content)
-                print("-------------------")
+                    print_system(chunk["tools"]["messages"][0].content)
+                print_system("-------------------")
 
-            # Wait before the next action
-            time.sleep(interval)
+            # Force wait after processing mentions
+            print_system(f"Processed mentions. Waiting {MENTION_CHECK_INTERVAL/60} minutes before next check...")
+            time.sleep(MENTION_CHECK_INTERVAL)
 
         except KeyboardInterrupt:
-            print("Goodbye Agent!")
+            print_system("Saving state and exiting...")
+            twitter_state.save()
             sys.exit(0)
 
 
