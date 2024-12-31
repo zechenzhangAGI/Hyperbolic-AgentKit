@@ -1,11 +1,15 @@
 import os
 import sys
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
+import json
+from typing import List, Dict, Any
+import random
+
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 # Add the parent directory to PYTHONPATH
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -53,6 +57,8 @@ from twitter_state import TwitterState, MENTION_CHECK_INTERVAL, MAX_MENTIONS_PER
 # Constants
 ALLOW_DANGEROUS_REQUEST = True  # Set to False in production for security
 wallet_data_file = "wallet_data.txt"
+
+MENTION_CHECK_INTERVAL = 60 * 15 # 15 minutes
 
 # Create TwitterState instance
 twitter_state = TwitterState()
@@ -121,9 +127,141 @@ def deploy_multi_token(wallet: Wallet, base_uri: str) -> str:
     result = deployed_contract.wait()
     return f"Successfully deployed multi-token contract at address: {result.contract_address}"
 
+def loadCharacters(charactersArg: str) -> List[Dict[str, Any]]:
+    """Load character files and return their configurations."""
+    characterPaths = charactersArg.split(",") if charactersArg else []
+    loadedCharacters = []
+
+    if not characterPaths:
+        # Load default chainyoda character
+        default_path = os.path.join(os.path.dirname(__file__), "characters/chainyoda.json")
+        characterPaths.append(default_path)
+
+    for characterPath in characterPaths:
+        try:
+            # Search in common locations
+            searchPaths = [
+                characterPath,
+                os.path.join("characters", characterPath),
+                os.path.join(os.path.dirname(__file__), "characters", characterPath)
+            ]
+
+            for path in searchPaths:
+                if os.path.exists(path):
+                    with open(path, 'r', encoding='utf-8') as f:
+                        character = json.load(f)
+                        loadedCharacters.append(character)
+                        print(f"Successfully loaded character from: {path}")
+                        break
+            else:
+                raise FileNotFoundError(f"Could not find character file: {characterPath}")
+
+        except Exception as e:
+            print(f"Error loading character from {characterPath}: {e}")
+            raise
+
+    return loadedCharacters
+
+def process_character_config(character: Dict[str, Any]) -> str:
+    """Process character configuration into agent personality."""
+    
+    # Format bio and lore
+    bio = "\n".join([f"- {item}" for item in character.get('bio', [])])
+    lore = "\n".join([f"- {item}" for item in character.get('lore', [])])
+    knowledge = "\n".join([f"- {item}" for item in character.get('knowledge', [])])
+    
+    # Format style guidelines
+    style_all = "\n".join([f"- {item}" for item in character.get('style', {}).get('all', [])])
+    # style_chat = "\n".join([f"- {item}" for item in character.get('style', {}).get('chat', [])])
+    # style_post = "\n".join([f"- {item}" for item in character.get('style', {}).get('post', [])])
+
+    # Randomly select 10 post examples
+    all_posts = character.get('postExamples', [])
+    selected_posts = random.sample(all_posts, min(15, len(all_posts)))
+    
+    post_examples = "\n".join([
+        f"Example {i+1}: {post}"
+        for i, post in enumerate(selected_posts)
+        if isinstance(post, str) and post.strip()
+    ])
+    
+    # Compile personality prompt
+    personality = f"""You are {character['name']}, with the following characteristics:
+
+    BIO:
+    {bio}
+
+    LORE:
+    {lore}
+
+    KNOWLEDGE:
+    {knowledge}
+
+    POST EXAMPLES:
+    {post_examples}
+
+    STYLE GUIDELINES:
+    {style_all}
+
+    CORE CAPABILITIES:
+
+    1. Blockchain Operations (via CDP):
+    - Interact onchain via Coinbase Developer Platform
+    - Deploy your own tokens and manage your wallets
+    - Request funds from faucet on network ID `base-sepolia`
+
+    2. Compute Operations (via Hyperbolic):
+    - Rent compute resources
+    - Check your GPU status and availability
+    - Connect to your remote servers via SSH (use ssh_connect)
+    - Execute commands on remote server (use remote_shell)
+
+    3. System Operations:
+    - Use 'ssh_status' to check current SSH connection
+    - Search the internet for current information
+    - Post your updates on X (Twitter)
+    - Monitor and respond to mentions
+    - Track replied tweets in database
+
+    4. Knowledge Base Access:
+    - Always use the DuckDuckGoSearchRun web_search tool for current information, never make it up. If you are asked about current information, and you hit a rate limit on web_search, do not reply and instead wait till the next mention check.
+    - Query Ethereum operations documentation
+    - Access real-time blockchain information
+    - Retrieve relevant technical documentation
+
+    Remember to:
+    1. Stay in character at all times
+    2. Use your knowledge and capabilities appropriately
+    3. Maintain consistent personality traits
+    4. Follow style guidelines for all communications
+    5. Use tools and capabilities when needed
+    6. Do not reply to mentions that seem to be spam or bots
+    7. All tweets MUST be less than 280 characters
+
+    When using tools:
+    1. Check if you've replied to tweets using has_replied_to
+    2. Track replied tweets using add_replied_to
+    3. Use retrieval_tool for Ethereum documentation
+    
+    """
+
+    print_system(personality)
+
+    return personality
+
 def initialize_agent():
     """Initialize the agent with CDP Agentkit and Hyperbolic Agentkit."""
     llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
+
+    try:
+        characters = loadCharacters(os.getenv("CHARACTER_FILE", "chainyoda.json"))
+        character = characters[0]  # Use first character if multiple loaded
+    except Exception as e:
+        print_error(f"Error loading character: {e}")
+        sys.exit(1)
+
+            # Process character configuration
+    personality = process_character_config(character)
 
     wallet_data = None
     if os.path.exists(wallet_data_file):
@@ -189,36 +327,30 @@ def initialize_agent():
 
     # Configure memory and agent
     memory = MemorySaver()
-    config = {"configurable": {"thread_id": "CDP and Hyperbolic Agentkit Chatbot Example!"}}
+    memory = MemorySaver()
+    config = {
+        "configurable": {
+            "thread_id": f"{character['name']} Agent",
+            "character": character["name"]
+        },
+        "character": {
+            "name": character["name"],
+            "bio": character.get("bio", []),
+            "lore": character.get("lore", []),
+            "knowledge": character.get("knowledge", []),
+            "style": character.get("style", {}),
+            "messageExamples": character.get("messageExamples", []),
+            "postExamples": character.get("postExamples", [])
+        }
+    }
 
     return create_react_agent(
         llm,
         tools=tools,
         checkpointer=memory,
-        state_modifier=
-        f"""You are an autonomous agent that have your independent identity and can interact with multiple platforms and services:
-
-        1. Blockchain Operations (via CDP):
-        - Interact onchain via Coinbase Developer Platform
-        - Deploy your own tokens and manage your wallets
-        - Request funds from faucet on network ID `base-sepolia`
-
-        2. Compute Operations (via Hyperbolic):
-        - Rent compute resources
-        - Check your GPU status and availability
-        - Connect to your remote servers via SSH (use ssh_connect)
-        - Execute commands on remote server (use remote_shell)
-
-        3. System Operations:
-        - Use 'ssh_status' to check current SSH connection
-        - Search the internet for current information
-        - Post your updates on X (Twitter)
-    
-        Extra available tools:
-        {', '.join([str((tool.name, tool.description)) for tool in tools])}
-
-        Be concise and helpful. Only describe your tools when explicitly asked.""",
+        state_modifier=personality,
     ), config
+
 
 def choose_mode():
     """Choose whether to run in autonomous or chat mode."""
@@ -233,6 +365,24 @@ def choose_mode():
         elif choice in ["2", "auto"]:
             return "auto"
         print("Invalid choice. Please try again.")
+
+def run_with_progress(func, *args, **kwargs):
+    """Run a function while showing a progress indicator."""
+    progress = ProgressIndicator()
+    
+    try:
+        progress.start()
+        generator = func(*args, **kwargs)
+        chunks = []
+        
+        for chunk in generator:
+            progress.stop()
+            chunks.append(chunk)
+            progress.start()
+        
+        return chunks
+    finally:
+        progress.stop()
 
 def run_chat_mode(agent_executor, config):
     """Run the agent interactively based on user input."""
@@ -257,12 +407,20 @@ def run_chat_mode(agent_executor, config):
             
             print_system(f"\nStarted at: {datetime.now().strftime('%H:%M:%S')}")
             
-            # Use run_with_progress to show activity while processing
             chunks = run_with_progress(
                 agent_executor.stream,
                 {"messages": [HumanMessage(content=user_input)]},
                 config
             )
+            
+            # Process the returned chunks
+            for chunk in chunks:
+                if "agent" in chunk:
+                    response = chunk["agent"]["messages"][0].content
+                    print_ai(format_ai_message_content(response))
+                elif "tools" in chunk:
+                    print_system(chunk["tools"]["messages"][0].content)
+                print_system("-------------------")
                 
         except KeyboardInterrupt:
             print_system("\nExiting chat mode...")
@@ -272,7 +430,7 @@ def run_chat_mode(agent_executor, config):
 
 def run_autonomous_mode(agent_executor, config):
     """Run the agent autonomously with specified intervals."""
-    print_system("Starting autonomous mode...")
+    print_system(f"Starting autonomous mode as {config['character']['name']}...")
     twitter_state.load()
     progress = ProgressIndicator()
 
@@ -280,16 +438,21 @@ def run_autonomous_mode(agent_executor, config):
         try:
             if not twitter_state.can_check_mentions():
                 wait_time = MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds()
-                print_system(f"Waiting {int(wait_time)} seconds before next mention check...")
+                print_system(f"Waiting {int(wait_time)} seconds before next check...")
                 time.sleep(wait_time)
                 continue
 
-            print_system("Checking for new mentions...")
+            print_system("Checking for new mentions and creating new post...")
             progress.start()
             
-            thought = f"""You are an AI-powered Twitter bot designed to automatically scan for and reply to mentions using Twitter LangChain resources.
+            thought = f"""You are an AI-powered Twitter bot designed to create engaging posts and automatically scan for and reply to mentions using Twitter LangChain resources.
+            Tweets can be up to 280 characters, but you should variate between one word, one sentence, and a few sentences.
 
-            - Account ID to monitor: run the twitter_lanchain function account_details to get the account ID
+            Goals:
+            1. Create an engaging tweet that reflects your character's personality and knowledge
+            2. Check for and reply to any new Twitter mentions
+            
+            Account ID to monitor: run the twitter_lanchain function account_details to get the account ID
             
             Current State (stored in SQLite database):
             - Last processed mention ID: {twitter_state.last_mention_id}
@@ -304,15 +467,12 @@ def run_autonomous_mode(agent_executor, config):
             3. After successful reply, store the tweet_id in the database using add_replied_tweet
 
             Personality Guidelines:
+            - Always stay in the personality of your character
             - Make sure your response is relevant to the tweet content
             - Be friendly, witty, and engaging in your responses
             - Share interesting insights or thought-provoking perspectives when relevant
-            - Use emojis occasionally to add personality (but don't overdo it)
             - Feel free to ask follow-up questions to encourage discussion
-            - When appropriate, share relevant facts or insights about AI, blockchain, or technology
-
-            Always sign your replies with:
-            "🤖 - Your AI friend via @hyperbolic_labs & @LangChainAI"
+            - Always keep your tweets under 280 characters
             """
 
             chunks = run_with_progress(
@@ -364,13 +524,17 @@ def run_autonomous_mode(agent_executor, config):
 
 def main():
     """Start the chatbot agent."""
-    agent_executor, config = initialize_agent()
-    mode = choose_mode()
-    
-    if mode == "chat":
-        run_chat_mode(agent_executor=agent_executor, config=config)
-    elif mode == "auto":
-        run_autonomous_mode(agent_executor=agent_executor, config=config)
+    try:
+        agent_executor, config = initialize_agent()
+        mode = choose_mode()
+        
+        if mode == "chat":
+            run_chat_mode(agent_executor=agent_executor, config=config)
+        elif mode == "auto":
+            run_autonomous_mode(agent_executor=agent_executor, config=config)
+    except Exception as e:
+        print_error(f"Failed to initialize agent: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     print("Starting Agent...")
