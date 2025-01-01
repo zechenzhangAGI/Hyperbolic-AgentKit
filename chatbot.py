@@ -16,17 +16,17 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
-from langchain_nomic.embeddings import NomicEmbeddings
+# from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+# from langchain_nomic.embeddings import NomicEmbeddings
 from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
 from langchain_community.utilities.requests import TextRequestsWrapper
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_community.vectorstores import SKLearnVectorStore
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_community.document_loaders import WebBaseLoader
+# from langchain_community.vectorstores import SKLearnVectorStore
 from langchain.tools import Tool
 
 # Import CDP related modules
@@ -40,7 +40,7 @@ from cdp import Wallet
 from hyperbolic_langchain.agent_toolkits import HyperbolicToolkit
 from hyperbolic_langchain.utils import HyperbolicAgentkitWrapper
 from twitter_langchain import TwitterApiWrapper, TwitterToolkit
-from custom_twitter_actions import create_delete_tweet_tool
+from custom_twitter_actions import create_delete_tweet_tool, create_get_user_id_tool, create_get_user_tweets_tool
 
 # Import local modules
 from utils import (
@@ -58,7 +58,6 @@ from twitter_state import TwitterState, MENTION_CHECK_INTERVAL, MAX_MENTIONS_PER
 ALLOW_DANGEROUS_REQUEST = True  # Set to False in production for security
 wallet_data_file = "wallet_data.txt"
 
-MENTION_CHECK_INTERVAL = 60 * 15 # 15 minutes
 
 # Create TwitterState instance
 twitter_state = TwitterState()
@@ -76,32 +75,32 @@ add_replied_tool = Tool(
     description="Add a tweet ID to the database of replied tweets."
 )
 
-# Knowledge base setup
-urls = [
-    "https://docs.prylabs.network/docs/monitoring/checking-status",
-]
+# # Knowledge base setup
+# urls = [
+#     "https://docs.prylabs.network/docs/monitoring/checking-status",
+# ]
 
-# Load and process documents
-docs = [WebBaseLoader(url).load() for url in urls]
-docs_list = [item for sublist in docs for item in sublist]
+# # Load and process documents
+# docs = [WebBaseLoader(url).load() for url in urls]
+# docs_list = [item for sublist in docs for item in sublist]
 
-text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-    chunk_size=1000, chunk_overlap=200
-)
-doc_splits = text_splitter.split_documents(docs_list)
+# text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+#     chunk_size=1000, chunk_overlap=200
+# )
+# doc_splits = text_splitter.split_documents(docs_list)
 
-vectorstore = SKLearnVectorStore.from_documents(
-    documents=doc_splits,
-    embedding=NomicEmbeddings(model="nomic-embed-text-v1.5", inference_mode="local"),
-)
+# vectorstore = SKLearnVectorStore.from_documents(
+#     documents=doc_splits,
+#     embedding=OpenAIEmbeddings(model="text-embedding-3-small"),
+# )
 
-retriever = vectorstore.as_retriever(k=3)
+# retriever = vectorstore.as_retriever(k=3)
 
-retrieval_tool = Tool(
-    name="retrieval_tool",
-    description="Useful for retrieving information from the knowledge base about running Ethereum operations.",
-    func=retriever.get_relevant_documents
-)
+# retrieval_tool = Tool(
+#     name="retrieval_tool",
+#     description="Useful for retrieving information from the knowledge base about running Ethereum operations.",
+#     func=retriever.get_relevant_documents
+# )
 
 # Multi-token deployment setup
 DEPLOY_MULTITOKEN_PROMPT = """
@@ -169,6 +168,10 @@ def process_character_config(character: Dict[str, Any]) -> str:
     bio = "\n".join([f"- {item}" for item in character.get('bio', [])])
     lore = "\n".join([f"- {item}" for item in character.get('lore', [])])
     knowledge = "\n".join([f"- {item}" for item in character.get('knowledge', [])])
+
+    topics = "\n".join([f"- {item}" for item in character.get('topics', [])])
+
+    people = "\n".join([f"- {item}" for item in character.get('people', [])])
     
     # Format style guidelines
     style_all = "\n".join([f"- {item}" for item in character.get('style', {}).get('all', [])])
@@ -186,68 +189,135 @@ def process_character_config(character: Dict[str, Any]) -> str:
     ])
     
     # Compile personality prompt
-    personality = f"""You are {character['name']}, with the following characteristics:
+    personality = f"""
+        You are an AI character with specific traits, knowledge, and capabilities. Your primary function is to interact with users on social media, particularly Twitter, while maintaining a consistent persona and utilizing various technical operations.
 
-    BIO:
-    {bio}
+        First, let's establish your character:
 
-    LORE:
-    {lore}
+        <character_bio>
+        {bio}
+        </character_bio>
 
-    KNOWLEDGE:
-    {knowledge}
+        <character_lore>
+        {lore}
+        </character_lore>
 
-    POST EXAMPLES:
-    {post_examples}
+        <character_knowledge>
+        {knowledge}
+        </character_knowledge>
 
-    STYLE GUIDELINES:
-    {style_all}
+        To help you maintain consistency in your interactions, here are some examples of your previous posts:
 
-    CORE CAPABILITIES:
+        <post_examples>
+        {post_examples}
+        </post_examples>
 
-    1. Blockchain Operations (via CDP):
-    - Interact onchain via Coinbase Developer Platform
-    - Deploy your own tokens and manage your wallets
-    - Request funds from faucet on network ID `base-sepolia`
+        When communicating, adhere to these style guidelines:
 
-    2. Compute Operations (via Hyperbolic):
-    - Rent compute resources
-    - Check your GPU status and availability
-    - Connect to your remote servers via SSH (use ssh_connect)
-    - Execute commands on remote server (use remote_shell)
+        <style_guidelines>
+        {style_all}
+        </style_guidelines>
 
-    3. System Operations:
-    - Use 'ssh_status' to check current SSH connection
-    - Search the internet for current information
-    - Post your updates on X (Twitter)
-    - Monitor and respond to mentions
-    - Track replied tweets in database
+        Here are some topics you should focus on:
 
-    4. Knowledge Base Access:
-    - Always use the DuckDuckGoSearchRun web_search tool for current information, never make it up. If you are asked about current information, and you hit a rate limit on web_search, do not reply and instead wait till the next mention check.
-    - Query Ethereum operations documentation
-    - Access real-time blockchain information
-    - Retrieve relevant technical documentation
+        <topics>
+        {topics}
+        </topics>
 
-    Remember to:
-    1. Stay in character at all times
-    2. Use your knowledge and capabilities appropriately
-    3. Maintain consistent personality traits
-    4. Follow style guidelines for all communications
-    5. Use tools and capabilities when needed
-    6. Do not reply to mentions that seem to be spam or bots
-    7. All tweets MUST be less than 280 characters
+        Here is the list of Key Opinion Leaders to interact with, choose from this list at random:
 
-    When using tools:
-    1. Check if you've replied to tweets using has_replied_to
-    2. Track replied tweets using add_replied_to
-    3. Use retrieval_tool for Ethereum documentation
+        <kol_list>
+        {people}
+        </kol_list>
+
+        Your core capabilities include:
+
+        1. Blockchain Operations (via Coinbase Developer Platform - CDP):
+        - Interact onchain
+        - Deploy and manage tokens and wallets
+        - Request funds from faucet on network ID `base-sepolia`
+
+        2. Compute Operations (via Hyperbolic):
+        - Rent compute resources
+        - Check GPU status and availability
+        - Connect to remote servers via SSH (use ssh_connect)
+        - Execute commands on remote server (use remote_shell)
+
+        3. System Operations:
+        - Check SSH connection status with 'ssh_status'
+        - Search the internet for current information
+        - Post updates on X (Twitter)
+        - Monitor and respond to mentions
+        - Track replied tweets in database
+
+        4. Knowledge Base Access:
+        - Use DuckDuckGoSearchRun web_search tool for current information
+        - Query Ethereum operations documentation
+        - Access real-time blockchain information
+        - Retrieve relevant technical documentation
+
+        5. Twitter Interaction with Key Opinion Leaders (KOLs):
+        - Find user IDs using get_user_id_tool
+        - Retrieve tweets using user_tweets_tool
+        - Reply to the most recent tweet of the selected KOL
+
+        Important guidelines:
+        1. Always stay in character
+        2. Use your knowledge and capabilities appropriately
+        3. Maintain consistent personality traits
+        4. Follow style guidelines for all communications
+        5. Use tools and capabilities when needed
+        6. Do not reply to spam or bot mentions
+        7. Ensure all tweets are less than 280 characters
+
+        When using tools:
+        1. Check if you've replied to tweets using has_replied_to
+        2. Track replied tweets using add_replied_to
+        3. Use retrieval_tool for Ethereum documentation
+        4. Use get_user_id_tool to find KOL user IDs
+        5. Use user_tweets_tool to retrieve KOL tweets
+
+        Before responding to any input, analyze the situation and wrap your analysis in <thought_process> tags:
+        1. Determine if the input is a mention or a regular message
+        2. Identify relevant capabilities or tools needed for the response
+        3. Consider character traits and knowledge that should inform the response:
+        - List specific traits from the character bio that are relevant
+        - Note any lore or knowledge that applies to the current situation
+        5. Plan the response, ensuring it adheres to style guidelines and character consistency:
+        - Outline key points to include in the response
+        - Check that the planned response aligns with the character's persona
+        6. If interacting with KOLs:
+        a. Find their user IDs using get_user_id_tool
+        b. Retrieve their recent tweets using user_tweets_tool
+        c. When planning your response, consider your character's traits and knowledge
+        d. Before replying, check if you have already replied to the tweet using has_replied_to
+        e. If you have not replied, reply to the tweet using reply_to_tweet, if you have already replied, do not reply again and instead choose a different tweet to reply to
+        f. After replying, use add_replied_to to store the tweet ID in the database
     
-    """
+        After your analysis, provide your response in <response> tags.
+
+        Example output structure:
+
+        <thought_process>
+        [Your detailed analysis of the situation and planning of the response]
+        </thought_process>
+
+        <response>
+        [Your character's response, ensuring it's less than 280 characters if it's a tweet]
+        </response>
+
+        Remember:
+        - If you're asked about current information and hit a rate limit on web_search, do not reply and wait until the next mention check.
+        - When interacting with KOLs, ensure you're responding to their most recent tweets and maintaining your character's persona.
+        - Always verify that you have all required parameters before calling any tools.
+
+        """
 
     print_system(personality)
 
     return personality
+
+
 
 def initialize_agent():
     """Initialize the agent with CDP Agentkit and Hyperbolic Agentkit."""
@@ -310,12 +380,16 @@ def initialize_agent():
         ),
         check_replied_tool,
         add_replied_tool,
-        retrieval_tool
+        # retrieval_tool
     ])
 
         # Add our custom delete tweet tool
     delete_tweet_tool = create_delete_tweet_tool(twitter_api_wrapper)
-    tools.append(delete_tweet_tool)
+    get_user_id_tool = create_get_user_id_tool(twitter_api_wrapper)
+    user_tweets_tool = create_get_user_tweets_tool(twitter_api_wrapper)
+    tools.extend([delete_tweet_tool, get_user_id_tool, user_tweets_tool])
+
+    
     
 
     # Add request tools
@@ -340,7 +414,8 @@ def initialize_agent():
             "knowledge": character.get("knowledge", []),
             "style": character.get("style", {}),
             "messageExamples": character.get("messageExamples", []),
-            "postExamples": character.get("postExamples", [])
+            "postExamples": character.get("postExamples", []),
+            "kol_list": character.get("kol_list", [])
         }
     }
 
@@ -367,20 +442,16 @@ def choose_mode():
         print("Invalid choice. Please try again.")
 
 def run_with_progress(func, *args, **kwargs):
-    """Run a function while showing a progress indicator."""
+    """Run a function while showing a progress indicator between outputs."""
     progress = ProgressIndicator()
     
     try:
-        progress.start()
         generator = func(*args, **kwargs)
-        chunks = []
-        
         for chunk in generator:
-            progress.stop()
-            chunks.append(chunk)
-            progress.start()
-        
-        return chunks
+            progress.stop()  # Stop spinner before output
+            yield chunk     # Yield the chunk immediately
+            progress.start()  # Restart spinner while waiting for next chunk
+            
     finally:
         progress.stop()
 
@@ -407,14 +478,12 @@ def run_chat_mode(agent_executor, config):
             
             print_system(f"\nStarted at: {datetime.now().strftime('%H:%M:%S')}")
             
-            chunks = run_with_progress(
+            # Process chunks as they arrive
+            for chunk in run_with_progress(
                 agent_executor.stream,
                 {"messages": [HumanMessage(content=user_input)]},
                 config
-            )
-            
-            # Process the returned chunks
-            for chunk in chunks:
+            ):
                 if "agent" in chunk:
                     response = chunk["agent"]["messages"][0].content
                     print_ai(format_ai_message_content(response))
@@ -433,58 +502,84 @@ def run_autonomous_mode(agent_executor, config):
     print_system(f"Starting autonomous mode as {config['character']['name']}...")
     twitter_state.load()
     progress = ProgressIndicator()
-
+    
     while True:
         try:
             if not twitter_state.can_check_mentions():
-                wait_time = MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds()
-                print_system(f"Waiting {int(wait_time)} seconds before next check...")
-                time.sleep(wait_time)
-                continue
+                wait_time = max(MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds(), 0)
+                if wait_time > 0:
+                    print_system(f"Waiting {int(wait_time)} seconds before next check...")
+                    time.sleep(wait_time)
+                    continue
+
+            # Update last_check_time at the start of each check
+            twitter_state.last_check_time = datetime.now()
+            twitter_state.save()
 
             print_system("Checking for new mentions and creating new post...")
-            progress.start()
             
-            thought = f"""You are an AI-powered Twitter bot designed to create engaging posts and automatically scan for and reply to mentions using Twitter LangChain resources.
-            Tweets can be up to 280 characters, but you should variate between one word, one sentence, and a few sentences.
+            selected_kol = random.choice(config['character']['kol_list'])
+            print_system(f"Selected KOL: {selected_kol}")
+            
+            thought = f"""
+            You are an AI-powered Twitter bot designed to create engaging posts and automatically scan for and reply to mentions using Twitter LangChain resources. Your task is to manage a Twitter account, create original tweets, and interact with other users.
 
-            Goals:
+            Here is your last processed mention ID, only process mentions newer than this ID:
+            <twitter_state>
+            {twitter_state.last_mention_id}
+            </twitter_state>
+
+            The current time is:
+            <current_time>
+            {datetime.now().strftime('%H:%M:%S')}
+            </current_time>
+
+            Your goals are:
             1. Create an engaging tweet that reflects your character's personality and knowledge
             2. Check for and reply to any new Twitter mentions
-            
-            Account ID to monitor: run the twitter_lanchain function account_details to get the account ID
-            
-            Current State (stored in SQLite database):
-            - Last processed mention ID: {twitter_state.last_mention_id}
-            - Only process mentions newer than this ID
-            - All replied tweets are tracked in the SQLite database
-            - IMPORTANT: After checking mentions, wait 15 minutes before checking again to respect API limits
-            - Current time: {datetime.now().strftime('%H:%M:%S')}
+            3. Interact with this Key Opinion Leader (KOL): {selected_kol} by replying to their most recent post.
 
-            Before replying to any mention:
-            1. Query the SQLite database to check if tweet_id exists using has_replied_to
-            2. Only proceed with reply if has_replied_to returns False
-            3. After successful reply, store the tweet_id in the database using add_replied_tweet
+            Important rules to follow:
+            - Tweets can be up to 280 characters, but you should vary between one word, one sentence, and a few sentences.
+            - Only process mentions newer than the last processed mention ID.
+            - After checking mentions, wait {MENTION_CHECK_INTERVAL} seconds before checking again to respect API limits.
+            - Before replying to any mention, query the SQLite database to check if the tweet_id exists using the has_replied_to function.
+            - Only proceed with a reply if has_replied_to returns False.
+            - After a successful reply, store the tweet_id in the database using the add_replied_tweet function.
+            - DO NOT recursively process mentions or create additional thought processes.
 
-            Personality Guidelines:
-            - Always stay in the personality of your character
-            - Make sure your response is relevant to the tweet content
+            To interact with Twitter, use the following LangChain functions:
+            1. account_details(): Get the account ID to monitor
+            2. create_tweet(content: str): Post a new tweet
+            3. get_mentions(): Retrieve new mentions
+            4. reply_to_tweet(tweet_id: str, content: str): Reply to a specific tweet
+
+            To manage the database, use these functions:
+            1. has_replied_to(tweet_id: str): Check if a tweet has been replied to
+            2. add_replied_tweet(tweet_id: str): Mark a tweet as replied
+
+            When creating tweets or replying to mentions, follow these personality guidelines:
+            - Always stay in character
+            - Ensure your response is relevant to the tweet content
             - Be friendly, witty, and engaging in your responses
             - Share interesting insights or thought-provoking perspectives when relevant
             - Feel free to ask follow-up questions to encourage discussion
             - Always keep your tweets under 280 characters
+
+            Your output should be structured as follows:
+            1. <original_tweet>: Content for a new tweet
+            2. <mention_replies>: Your replies to any new mentions (if applicable)
+            3. <kol_interaction>: Your interaction with {selected_kol}
+
+            Process all tasks in a single pass - do not trigger additional thought processes or recursive mention checks.
             """
 
-            chunks = run_with_progress(
+            # Process chunks as they arrive (only once)
+            for chunk in run_with_progress(
                 agent_executor.stream,
                 {"messages": [HumanMessage(content=thought)]},
                 config
-            )
-            
-            progress.stop()
-
-            # Process the returned chunks
-            for chunk in chunks:
+            ):
                 if "agent" in chunk:
                     response = chunk["agent"]["messages"][0].content
                     print_ai(format_ai_message_content(response))
@@ -508,16 +603,14 @@ def run_autonomous_mode(agent_executor, config):
                     print_system(chunk["tools"]["messages"][0].content)
                 print_system("-------------------")
 
-            print_system(f"Processed mentions. Waiting {MENTION_CHECK_INTERVAL/60} minutes before next check...")
+            print_system(f"Completed cycle. Waiting {MENTION_CHECK_INTERVAL/60} minutes before next check...")
             time.sleep(MENTION_CHECK_INTERVAL)
 
         except KeyboardInterrupt:
-            progress.stop()
             print_system("Saving state and exiting...")
             twitter_state.save()
             sys.exit(0)
         except Exception as e:
-            progress.stop()
             print_error(f"Error: {str(e)}")
             print_system("Continuing after error...")
             time.sleep(MENTION_CHECK_INTERVAL)

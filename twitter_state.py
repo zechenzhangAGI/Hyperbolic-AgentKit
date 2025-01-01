@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 # Constants
-MENTION_CHECK_INTERVAL = 15 * 60  # 15 minutes in seconds
+MENTION_CHECK_INTERVAL = 2 * 60  # 15 minutes in seconds
 MAX_MENTIONS_PER_INTERVAL = 50  # Adjust based on your API tier limits
 
 class TwitterState:
@@ -64,6 +64,8 @@ class TwitterState:
                     INSERT OR REPLACE INTO twitter_state (key, value) 
                     VALUES (?, ?)
                 ''', (key, value))
+            conn.commit()
+  
 
     def add_replied_tweet(self, tweet_id):
         """Add a tweet ID to the database of replied tweets."""
@@ -84,9 +86,11 @@ class TwitterState:
     def can_check_mentions(self):
         """Check if enough time has passed since last mention check."""
         if not self.last_check_time:
+     
             return True
         
         time_since_last_check = (datetime.now() - self.last_check_time).total_seconds()
+      
         return time_since_last_check >= MENTION_CHECK_INTERVAL
 
     def update_rate_limit(self):
