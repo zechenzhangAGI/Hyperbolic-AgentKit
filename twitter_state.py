@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 # Constants
-MENTION_CHECK_INTERVAL = 15 * 60  # 15 minutes in seconds
+MENTION_CHECK_INTERVAL = 5 * 60  # 15 minutes in seconds
 MAX_MENTIONS_PER_INTERVAL = 50  # Adjust based on your API tier limits
 
 class TwitterState:
