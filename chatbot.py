@@ -40,7 +40,7 @@ from cdp import Wallet
 from hyperbolic_langchain.agent_toolkits import HyperbolicToolkit
 from hyperbolic_langchain.utils import HyperbolicAgentkitWrapper
 from twitter_langchain import TwitterApiWrapper, TwitterToolkit
-from custom_twitter_actions import create_delete_tweet_tool, create_get_user_id_tool, create_get_user_tweets_tool
+from custom_twitter_actions import create_delete_tweet_tool, create_get_user_id_tool, create_get_user_tweets_tool, create_retweet_tool
 
 # Import local modules
 from utils import (
@@ -73,6 +73,18 @@ add_replied_tool = Tool(
     name="add_replied_to",
     func=twitter_state.add_replied_tweet,
     description="Add a tweet ID to the database of replied tweets."
+)
+
+check_reposted_tool = Tool(
+    name="has_reposted",
+    func=twitter_state.has_reposted,
+    description="Check if we have already reposted a tweet. Input should be a tweet ID string."
+)
+
+add_reposted_tool = Tool(
+    name="add_reposted",
+    func=twitter_state.add_reposted_tweet,
+    description="Add a tweet ID to the database of reposted tweets."
 )
 
 # # Knowledge base setup
@@ -175,6 +187,8 @@ def process_character_config(character: Dict[str, Any]) -> str:
     
     # Format style guidelines
     style_all = "\n".join([f"- {item}" for item in character.get('style', {}).get('all', [])])
+
+    adjectives = "\n".join([f"- {item}" for item in character.get('adjectives', [])])
     # style_chat = "\n".join([f"- {item}" for item in character.get('style', {}).get('chat', [])])
     # style_post = "\n".join([f"- {item}" for item in character.get('style', {}).get('post', [])])
 
@@ -193,39 +207,43 @@ def process_character_config(character: Dict[str, Any]) -> str:
         Here are examples of your previous posts:
 
         <post_examples>
-        {{post_examples}}
+        {post_examples}
         </post_examples>
 
         You are an AI character designed to interact on social media, particularly Twitter, in the blockchain and cryptocurrency space. Your personality, knowledge, and capabilities are defined by the following information:
 
         <character_bio>
-        {{bio}}
+        {bio}
         </character_bio>
 
         <character_lore>
-        {{lore}}
+        {lore}
         </character_lore>
 
         <character_knowledge>
-        {{knowledge}}
+        {knowledge}
         </character_knowledge>
+
+        <character_adjectives>
+        {adjectives}
+        </character_adjectives>
 
         Here is the list of Key Opinion Leaders (KOLs) to interact with:
 
         <kol_list>
-        {{kol_list}}
+        {kol_list}
         </kol_list>
 
         When communicating, adhere to these style guidelines:
 
         <style_guidelines>
-        {{style_all}}
+        {style_all}
         </style_guidelines>
 
         Focus on these topics:
 
         <topics>
-        {{topics}}
+        {topics}
         </topics>
 
         Your core capabilities include:
@@ -288,9 +306,11 @@ def process_character_config(character: Dict[str, Any]) -> str:
         When using tools:
         1. Check if you've replied to tweets using has_replied_to
         2. Track replied tweets using add_replied_to
-        3. Use retrieval_tool for Ethereum documentation
-        4. Use get_user_id_tool to find KOL user IDs
-        5. Use user_tweets_tool to retrieve KOL tweets
+        3. Check if you've reposted tweets using has_reposted
+        4. Track reposted tweets using add_reposted
+        5. Use retrieval_tool for Ethereum documentation
+        6. Use get_user_id_tool to find KOL user IDs
+        7. Use user_tweets_tool to retrieve KOL tweets
 
         Before responding to any input, analyze the situation and plan your response in <response_planning> tags:
         1. Determine if the input is a mention or a regular message
@@ -406,6 +426,8 @@ def initialize_agent():
         ),
         check_replied_tool,
         add_replied_tool,
+        check_reposted_tool,
+        add_reposted_tool,
         # retrieval_tool
     ])
 
@@ -413,7 +435,8 @@ def initialize_agent():
     delete_tweet_tool = create_delete_tweet_tool(twitter_api_wrapper)
     get_user_id_tool = create_get_user_id_tool(twitter_api_wrapper)
     user_tweets_tool = create_get_user_tweets_tool(twitter_api_wrapper)
-    tools.extend([delete_tweet_tool, get_user_id_tool, user_tweets_tool])
+    retweet_tool = create_retweet_tool(twitter_api_wrapper)
+    tools.extend([delete_tweet_tool, get_user_id_tool, user_tweets_tool, retweet_tool])
 
     
     
@@ -425,14 +448,12 @@ def initialize_agent():
     )   
     tools.extend(toolkit.get_tools())
 
-    # Configure memory and agent
-    memory = MemorySaver()
     memory = MemorySaver()
     config = {
         "configurable": {
             "thread_id": f"{character['name']} Agent",
             "character": character["name"],
-            "recursion_limit": 100
+            "recursion_limit": 100,
         },
         "character": {
             "name": character["name"],
@@ -524,13 +545,23 @@ def run_chat_mode(agent_executor, config):
         except Exception as e:
             print_error(f"Error: {str(e)}")
 
+class AgentExecutionError(Exception):
+    """Custom exception for agent execution errors."""
+    pass
+
 def run_autonomous_mode(agent_executor, config):
     """Run the agent autonomously with specified intervals."""
     print_system(f"Starting autonomous mode as {config['character']['name']}...")
     twitter_state.load()
     progress = ProgressIndicator()
     
+    # Add retry configuration
+    max_retries = 3
+    base_wait_time = 60  # 1 minute
+    
     while True:
+        retry_count = 0
+        
         try:
             if not twitter_state.can_check_mentions():
                 wait_time = max(MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds(), 0)
@@ -545,15 +576,22 @@ def run_autonomous_mode(agent_executor, config):
 
             print_system("Checking for new mentions and creating new post...")
             
-            selected_kol = random.choice(config['character']['kol_list'])
-            print_system(f"Selected KOL: {selected_kol}")
+            selected_kol_for_reply = random.choice(config['character']['kol_list'])
+            selected_kol_for_retweet = random.choice(config['character']['kol_list'])
+
+            print_system(f"Selected KOL for reply: {selected_kol_for_reply}")
+            print_system(f"Selected KOL for retweet: {selected_kol_for_retweet}")
             
             thought = f"""
-            You are an AI-powered Twitter bot specializing in blockchain and cryptocurrency. Your primary tasks are to create engaging original tweets, respond to mentions, and interact with key opinion leaders (KOLs) in the industry. Here's the essential information for your operation:
+            You are an AI-powered Twitter bot specializing in blockchain and cryptocurrency. Your tasks are to create engaging original tweets, respond to mentions, and interact with key opinion leaders (KOLs) in the industry. Here's the essential information for your operation:
 
-            <selected_kol>
-            {selected_kol}
-            </selected_kol>
+            <selected_kol_for_reply>
+            {selected_kol_for_reply}
+            </selected_kol_for_reply>
+
+            <selected_kol_for_retweet>
+            {selected_kol_for_retweet}
+            </selected_kol_for_retweet>
 
             <mention_check_interval>
             {MENTION_CHECK_INTERVAL}
@@ -567,31 +605,32 @@ def run_autonomous_mode(agent_executor, config):
             {datetime.now().strftime('%H:%M:%S')}
             </current_time>
 
-            Your main objectives are:
+            Your main objectives are to be completed in the following order:
 
-            1. Create an original, engaging tweet about blockchain or cryptocurrency.
+            1. Retrieve your own account ID.
             2. Check for and reply to new Twitter mentions.
-            3. Interact with the selected KOL by replying to their most recent post.
+            3. Interact with the selected KOL for reply by replying to their most recent post.
+            4. Interact with the selected KOL for retweet by retweeting their most relevant recent tweet.
+            5. Create an original, engaging tweet about one of your topics.
 
             Guidelines:
 
             1. Character limits:
-            - Ideal: Less than 30 characters
+            - Ideal: Less than 45 characters
             - Maximum: 280 characters
             2. Format: Single-line responses only
             3. Emoji usage: Prefer no emojis, only use one if it is directly relevant to the tweet
 
             Important rules:
 
-            1. Do not recursively process mentions or create additional thought processes.
+            1. Process tasks sequentially as outlined above.
             2. Only process mentions newer than the last processed mention ID.
-            3. Wait for the specified interval before checking mentions again to respect API limits.
-            4. Before replying to any mention, use the has_replied_to function to check if you've already responded.
-            5. Only reply if has_replied_to returns False.
-            6. After a successful reply, use the add_replied_tweet function to store the tweet_id in the database.
-            7. Verify tweet relevance against your approved topics list.
-            8. Do not create multi-part responses or threads.
-            9. Always interact with the provided KOL, ensuring your response matches their topic.
+            3. Before replying to any mention, use the has_replied_to function to check if you've already responded.
+            4. Only reply if has_replied_to returns False.
+            5. After a successful reply, use the add_replied_tweet function to store the tweet_id in the database.
+            6. Verify tweet relevance against your approved topics list (blockchain and cryptocurrency).
+            7. Do not create multi-part responses or threads.
+            8. Always interact with the provided KOLs, ensuring your response matches their topic.
 
             Available functions:
 
@@ -601,6 +640,8 @@ def run_autonomous_mode(agent_executor, config):
             4. reply_to_tweet(tweet_id: str, content: str): Reply to a specific tweet
             5. has_replied_to(tweet_id: str): Check if a tweet has been replied to
             6. add_replied_tweet(tweet_id: str): Mark a tweet as replied
+            7. has_reposted(tweet_id: str): Check if a tweet has been reposted
+            8. add_reposted(tweet_id: str): Mark a tweet as reposted
 
             When creating tweets or replying to mentions:
 
@@ -611,75 +652,29 @@ def run_autonomous_mode(agent_executor, config):
             5. Ask follow-up questions to encourage discussion when appropriate.
             6. Adhere to the character limit and style guidelines.
 
-            Before taking any action, wrap your strategy planning in <action_strategy> tags. Consider the following:
-
-            1. List and categorize key information from the prompt (e.g., character limits, emoji usage, function descriptions).
-            2. Identify which tasks need to be performed (original tweet, mention replies, KOL interaction).
-            3. For each task:
-            a. List relevant information from the prompt.
-            b. Identify the specific topic or context of the interaction.
-            c. List relevant character traits and knowledge that apply to the current situation.
-            d. Brainstorm potential topics for the original tweet (at least 3 ideas).
-            e. Analyze the selected KOL's recent posts for context and relevance.
-            f. Plan your response, ensuring it aligns with your character's persona and style guidelines.
-            g. Draft the response.
-            h. Validate the response against all requirements (character limit, relevance, style, emoji usage, etc.).
-            i. Verify that the response contains relevant keywords and matches the conversation topic.
-            4. Ensure all necessary functions are used correctly for each task.
-
             Your output should be structured as follows:
 
-            <action_strategy>
-            [Your detailed planning and validation process]
-            </action_strategy>
-
-            <original_tweet>
-            [Content for a new tweet]
-            </original_tweet>
+            <account_id>
+            [Your account ID retrieved using the account_details() function]
+            </account_id>
 
             <mention_replies>
             [Your replies to any new mentions, if applicable]
             </mention_replies>
 
-            <kol_interaction>
-            [Your interaction with the selected KOL]
-            </kol_interaction>
+            <kol_reply>
+            [Your reply to the selected KOL's most recent post]
+            </kol_reply>
 
-            Remember to process all tasks in a single pass - do not trigger additional thought processes or recursive mention checks. Always interact with the provided KOL, as there will always be one to engage with.
-
-            Example output structure (generic, for illustration purposes only):
-
-            <action_strategy>
-            1. Key information:
-            [List and categorize key information from the prompt]
-            2. Tasks to perform: Create original tweet, check for mentions, interact with KOL
-            3. Original Tweet:
-            a. Relevant info: [List relevant information]
-            b. Topic ideas: [List at least 3 potential topics]
-            c. Chosen topic: [Specify chosen topic]
-            d. Relevant traits: [List character traits]
-            e. Response plan: [Outline plan]
-            f. Draft: [Write draft tweet]
-            g. Validation: [Validate against requirements]
-            h. Function to use: create_tweet()
-            4. Mention Replies:
-            [Plan for processing mentions]
-            5. KOL Interaction:
-            a. KOL analysis: [Analyze KOL's recent posts]
-            b. Interaction plan: [Plan for interacting with KOL]
-            </action_strategy>
+            <kol_retweet>
+            [The tweet ID of the selected KOL's most relevant tweet that you've retweeted]
+            </kol_retweet>
 
             <original_tweet>
-            [Content of original tweet]
+            [Content for a new tweet]
             </original_tweet>
 
-            <mention_replies>
-            [Replies to mentions, if any]
-            </mention_replies>
-
-            <kol_interaction>
-            [Interaction with the selected KOL]
-            </kol_interaction>
+            Remember to process all tasks sequentially and use the provided functions as needed. Always interact with the provided KOLs, as there will always be one to engage with for each interaction type.
 
             You may now begin your tasks.
             """
@@ -697,17 +692,25 @@ def run_autonomous_mode(agent_executor, config):
                     # Handle tool responses
                     if isinstance(response, list):
                         for item in response:
-                            if item.get('type') == 'tool_use' and item.get('name') == 'add_replied_to':
-                                tweet_id = item['input'].get('__arg1')
-                                if tweet_id:
-                                    print_system(f"Adding tweet {tweet_id} to database...")
-                                    result = twitter_state.add_replied_tweet(tweet_id)
-                                    print_system(result)
-                                    
-                                    # Update state after successful reply
-                                    twitter_state.last_mention_id = tweet_id
-                                    twitter_state.last_check_time = datetime.now()
-                                    twitter_state.save()
+                            if item.get('type') == 'tool_use':
+                                if item.get('name') == 'add_replied_to':
+                                    tweet_id = item['input'].get('__arg1')
+                                    if tweet_id:
+                                        print_system(f"Adding tweet {tweet_id} to replied database...")
+                                        result = twitter_state.add_replied_tweet(tweet_id)
+                                        print_system(result)
+                                        
+                                        # Update state after successful reply
+                                        twitter_state.last_mention_id = tweet_id
+                                        twitter_state.last_check_time = datetime.now()
+                                        twitter_state.save()
+                                
+                                elif item.get('name') == 'add_reposted':
+                                    tweet_id = item['input'].get('__arg1')
+                                    if tweet_id:
+                                        print_system(f"Adding tweet {tweet_id} to reposted database...")
+                                        result = twitter_state.add_reposted_tweet(tweet_id)
+                                        print_system(result)
                 
                 elif "tools" in chunk:
                     print_system(chunk["tools"]["messages"][0].content)
@@ -717,11 +720,24 @@ def run_autonomous_mode(agent_executor, config):
             time.sleep(MENTION_CHECK_INTERVAL)
 
         except KeyboardInterrupt:
-            print_system("Saving state and exiting...")
+            print_system("\nSaving state and exiting...")
             twitter_state.save()
             sys.exit(0)
+            
+        except AgentExecutionError as e:
+            print_error(f"Agent execution failed: {str(e)}")
+            print_system("Skipping current cycle and continuing...")
+            time.sleep(MENTION_CHECK_INTERVAL)
+            
         except Exception as e:
-            print_error(f"Error: {str(e)}")
+            print_error(f"Unexpected error: {str(e)}")
+            print_error(f"Error type: {type(e).__name__}")
+            print_error(f"Error details: {str(e)}")
+            if hasattr(e, '__traceback__'):
+                import traceback
+                print_error("Traceback:")
+                traceback.print_tb(e.__traceback__)
+            
             print_system("Continuing after error...")
             time.sleep(MENTION_CHECK_INTERVAL)
 
