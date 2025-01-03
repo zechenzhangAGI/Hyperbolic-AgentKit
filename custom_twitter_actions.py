@@ -91,4 +91,23 @@ def create_get_user_tweets_tool(twitter_api_wrapper) -> Tool:
         )
     )
 
+def retweet(client: tweepy.Client, tweet_id: str) -> str:
+    """Retweet a tweet using its ID."""
+    try:
+        response = client.retweet(tweet_id=tweet_id)
+        message = f"Successfully retweeted tweet {tweet_id}:\n{dumps(response)}"
+    except tweepy.errors.TweepyException as e:
+        message = f"Error retweeting tweet:\n{e}"
+    return message
+
+def create_retweet_tool(twitter_api_wrapper) -> Tool:
+    """Create a retweet tool with the given Twitter API wrapper."""
+    return Tool(
+        name="retweet",
+        description="""Retweet a tweet using its ID. You can only retweet public tweets.
+        Input should be the tweet ID as a string.
+        Example: retweet("1234567890")""",
+        func=lambda tweet_id: twitter_api_wrapper.run_action(retweet, tweet_id=tweet_id)
+    )
+
 
