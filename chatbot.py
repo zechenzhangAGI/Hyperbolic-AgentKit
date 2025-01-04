@@ -6,6 +6,7 @@ import time
 import json
 from typing import List, Dict, Any
 import random
+import asyncio
 
 
 # Load environment variables from .env file
@@ -28,6 +29,7 @@ from langchain_community.utilities.requests import TextRequestsWrapper
 # from langchain_community.document_loaders import WebBaseLoader
 # from langchain_community.vectorstores import SKLearnVectorStore
 from langchain.tools import Tool
+from langchain_core.runnables import RunnableConfig
 
 # Import CDP related modules
 from cdp_langchain.agent_toolkits import CdpToolkit
@@ -53,6 +55,8 @@ from utils import (
     format_ai_message_content
 )
 from twitter_state import TwitterState, MENTION_CHECK_INTERVAL, MAX_MENTIONS_PER_INTERVAL
+from twitter_knowledge_base import TweetKnowledgeBase, Tweet, update_knowledge_base
+from langchain_core.runnables import RunnableConfig
 
 # Constants
 ALLOW_DANGEROUS_REQUEST = True  # Set to False in production for security
@@ -365,114 +369,190 @@ def process_character_config(character: Dict[str, Any]) -> str:
 
 
 
-def initialize_agent():
+async def initialize_agent():
     """Initialize the agent with CDP Agentkit and Hyperbolic Agentkit."""
-    llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
-
     try:
-        characters = loadCharacters(os.getenv("CHARACTER_FILE", "chainyoda.json"))
-        character = characters[0]  # Use first character if multiple loaded
-    except Exception as e:
-        print_error(f"Error loading character: {e}")
-        sys.exit(1)
+        print_system("Initializing LLM...")
+        llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
 
-            # Process character configuration
-    personality = process_character_config(character)
+        print_system("Loading character configuration...")
+        try:
+            characters = loadCharacters(os.getenv("CHARACTER_FILE", "chainyoda.json"))
+            character = characters[0]  # Use first character if multiple loaded
+        except Exception as e:
+            print_error(f"Error loading character: {e}")
+            raise
 
-    wallet_data = None
-    if os.path.exists(wallet_data_file):
-        with open(wallet_data_file) as f:
-            wallet_data = f.read()
+        print_system("Processing character configuration...")
+        personality = process_character_config(character)
 
-    # Configure CDP Agentkit
-    values = {}
-    if wallet_data is not None:
-        values = {"cdp_wallet_data": wallet_data}
-    
-    agentkit = CdpAgentkitWrapper(**values)
-    
-    # Save wallet data
-    wallet_data = agentkit.export_wallet()
-    with open(wallet_data_file, "w") as f:
-        f.write(wallet_data)
+        # Create config first before using it
+        config = {
+            "configurable": {
+                "thread_id": f"{character['name']} Agent",
+                "character": character["name"],
+                "recursion_limit": 100,
+            },
+            "character": {
+                "name": character["name"],
+                "bio": character.get("bio", []),
+                "lore": character.get("lore", []),
+                "knowledge": character.get("knowledge", []),
+                "style": character.get("style", {}),
+                "messageExamples": character.get("messageExamples", []),
+                "postExamples": character.get("postExamples", []),
+                "kol_list": character.get("kol_list", [])
+            }
+        }
 
-    # Initialize toolkits and get tools
-    cdp_toolkit = CdpToolkit.from_cdp_agentkit_wrapper(agentkit)
-    tools = cdp_toolkit.get_tools()
+        print_system("Initializing Twitter API wrapper...")
+        twitter_api_wrapper = TwitterApiWrapper()
+        twitter_toolkit = TwitterToolkit.from_twitter_api_wrapper(twitter_api_wrapper)
+        
+        
+        print_system("Initializing knowledge base...")
+        try:
+            knowledge_base = TweetKnowledgeBase()
+            stats = knowledge_base.get_collection_stats()
+            print_system(f"Initial knowledge base stats: {stats}")
+            print_system("Knowledge base initialized successfully")
+        except Exception as e:
+            print_error(f"Error initializing knowledge base: {e}")
+            raise
 
-    hyperbolic_agentkit = HyperbolicAgentkitWrapper()
-    hyperbolic_toolkit = HyperbolicToolkit.from_hyperbolic_agentkit_wrapper(hyperbolic_agentkit)
-    tools.extend(hyperbolic_toolkit.get_tools())
+        # Ask user about knowledge base update
+        if config['character'].get('kol_list'):
+            # First ask if they want to clear the existing knowledge base
+            while True:
+                clear_choice = input("\nDo you want to clear the existing knowledge base? (y/n): ").lower().strip()
+                if clear_choice in ['y', 'n']:
+                    break
+                print("Invalid choice. Please enter 'y' or 'n'.")
 
-    twitter_api_wrapper = TwitterApiWrapper()
-    twitter_toolkit = TwitterToolkit.from_twitter_api_wrapper(twitter_api_wrapper)
-    tools.extend(twitter_toolkit.get_tools())
+            if clear_choice == 'y':
+                knowledge_base.clear_collection()
+                stats = knowledge_base.get_collection_stats()
+                print_system(f"Knowledge base stats after clearing: {stats}")
 
-    # Create deploy multi-token tool
-    deployMultiTokenTool = CdpTool(
-        name="deploy_multi_token",
-        description=DEPLOY_MULTITOKEN_PROMPT,
-        cdp_agentkit_wrapper=agentkit,
-        args_schema=DeployMultiTokenInput,
-        func=deploy_multi_token,
-    )
+            # Then ask about updating
+            while True:
+                update_choice = input("\nDo you want to update the knowledge base with KOL tweets? (y/n): ").lower().strip()
+                if update_choice in ['y', 'n']:
+                    break
+                print("Invalid choice. Please enter 'y' or 'n'.")
 
-    # Add additional tools
-    tools.extend([
-        deployMultiTokenTool,
-        DuckDuckGoSearchRun(
-            name="web_search",
-            description="Search the internet for current information."
-        ),
-        check_replied_tool,
-        add_replied_tool,
-        check_reposted_tool,
-        add_reposted_tool,
-        # retrieval_tool
-    ])
+            if update_choice == 'y':
+                print_system("Updating knowledge base with KOL tweets...")
+                try:
+                    await update_knowledge_base(twitter_api_wrapper, knowledge_base, config['character']['kol_list'])
+                    stats = knowledge_base.get_collection_stats()
+                    print_system(f"Updated knowledge base stats: {stats}")
+                    print_system("Knowledge base updated successfully")
+                except Exception as e:
+                    print_error(f"Error updating knowledge base: {e}")
+                    print_error(f"Error type: {type(e).__name__}")
+                    if hasattr(e, '__traceback__'):
+                        import traceback
+                        traceback.print_exception(type(e), e, e.__traceback__)
+                    raise
+            else:
+                print_system("Skipping knowledge base update...")
+
+        # Rest of initialization (tools, etc.)
+        # Reference to original code:
+
+        wallet_data = None
+        if os.path.exists(wallet_data_file):
+            with open(wallet_data_file) as f:
+                wallet_data = f.read()
+
+        # Configure CDP Agentkit
+        values = {}
+        if wallet_data is not None:
+            values = {"cdp_wallet_data": wallet_data}
+        
+        agentkit = CdpAgentkitWrapper(**values)
+        
+        # Save wallet data
+        wallet_data = agentkit.export_wallet()
+        with open(wallet_data_file, "w") as f:
+            f.write(wallet_data)
+
+        # Initialize toolkits and get tools
+        cdp_toolkit = CdpToolkit.from_cdp_agentkit_wrapper(agentkit)
+        tools = cdp_toolkit.get_tools()
+
+        hyperbolic_agentkit = HyperbolicAgentkitWrapper()
+        hyperbolic_toolkit = HyperbolicToolkit.from_hyperbolic_agentkit_wrapper(hyperbolic_agentkit)
+        tools.extend(hyperbolic_toolkit.get_tools())
+
+        tools.extend(twitter_toolkit.get_tools())
+
+        
+        # Create deploy multi-token tool
+        deployMultiTokenTool = CdpTool(
+            name="deploy_multi_token",
+            description=DEPLOY_MULTITOKEN_PROMPT,
+            cdp_agentkit_wrapper=agentkit,
+            args_schema=DeployMultiTokenInput,
+            func=deploy_multi_token,
+        )
+
+        # Add additional tools
+        tools.extend([
+            deployMultiTokenTool,
+            DuckDuckGoSearchRun(
+                name="web_search",
+                description="Search the internet for current information."
+            ),
+            check_replied_tool,
+            add_replied_tool,
+            check_reposted_tool,
+            add_reposted_tool,
+            # retrieval_tool
+        ])
 
         # Add our custom delete tweet tool
-    delete_tweet_tool = create_delete_tweet_tool(twitter_api_wrapper)
-    get_user_id_tool = create_get_user_id_tool(twitter_api_wrapper)
-    user_tweets_tool = create_get_user_tweets_tool(twitter_api_wrapper)
-    retweet_tool = create_retweet_tool(twitter_api_wrapper)
-    tools.extend([delete_tweet_tool, get_user_id_tool, user_tweets_tool, retweet_tool])
+        delete_tweet_tool = create_delete_tweet_tool(twitter_api_wrapper)
+        get_user_id_tool = create_get_user_id_tool(twitter_api_wrapper)
+        user_tweets_tool = create_get_user_tweets_tool(twitter_api_wrapper)
+        retweet_tool = create_retweet_tool(twitter_api_wrapper)
+        tools.extend([delete_tweet_tool, get_user_id_tool, user_tweets_tool, retweet_tool])
 
-    
-    
+        # Add request tools
+        toolkit = RequestsToolkit(
+            requests_wrapper=TextRequestsWrapper(headers={}),
+            allow_dangerous_requests=ALLOW_DANGEROUS_REQUEST,
+        )   
+        tools.extend(toolkit.get_tools())
 
-    # Add request tools
-    toolkit = RequestsToolkit(
-        requests_wrapper=TextRequestsWrapper(headers={}),
-        allow_dangerous_requests=ALLOW_DANGEROUS_REQUEST,
-    )   
-    tools.extend(toolkit.get_tools())
+        memory = MemorySaver()
 
-    memory = MemorySaver()
-    config = {
-        "configurable": {
-            "thread_id": f"{character['name']} Agent",
-            "character": character["name"],
-            "recursion_limit": 100,
-        },
-        "character": {
-            "name": character["name"],
-            "bio": character.get("bio", []),
-            "lore": character.get("lore", []),
-            "knowledge": character.get("knowledge", []),
-            "style": character.get("style", {}),
-            "messageExamples": character.get("messageExamples", []),
-            "postExamples": character.get("postExamples", []),
-            "kol_list": character.get("kol_list", [])
-        }
-    }
+        # Create knowledge base query tool
+        query_kb_tool = Tool(
+            name="query_knowledge_base",
+            func=lambda query: knowledge_base.format_query_results(
+                knowledge_base.query_knowledge_base(query)
+            ),
+            description="Query the knowledge base for relevant tweets about crypto/AI/tech trends. Input should be a search query string."
+        )
+        
+        # Add knowledge base tool to tools list
+        tools.extend([query_kb_tool])
 
-    return create_react_agent(
-        llm,
-        tools=tools,
-        checkpointer=memory,
-        state_modifier=personality,
-    ), config
+        # Create the runnable config with increased recursion limit
+        runnable_config = RunnableConfig(recursion_limit=200)
+
+        return create_react_agent(
+            llm,
+            tools=tools,
+            checkpointer=memory,
+            state_modifier=personality,
+        ), config, runnable_config
+
+    except Exception as e:
+        print_error(f"Error initializing agent: {e}")
+        raise
 
 
 def choose_mode():
@@ -503,7 +583,7 @@ def run_with_progress(func, *args, **kwargs):
     finally:
         progress.stop()
 
-def run_chat_mode(agent_executor, config):
+def run_chat_mode(agent_executor, config, runnable_config):
     """Run the agent interactively based on user input."""
     print_system("Starting chat mode... Type 'exit' to end.")
     print_system("Commands:")
@@ -530,7 +610,7 @@ def run_chat_mode(agent_executor, config):
             for chunk in run_with_progress(
                 agent_executor.stream,
                 {"messages": [HumanMessage(content=user_input)]},
-                config
+                runnable_config
             ):
                 if "agent" in chunk:
                     response = chunk["agent"]["messages"][0].content
@@ -549,19 +629,24 @@ class AgentExecutionError(Exception):
     """Custom exception for agent execution errors."""
     pass
 
-def run_autonomous_mode(agent_executor, config):
+def run_autonomous_mode(agent_executor, config, runnable_config):
     """Run the agent autonomously with specified intervals."""
     print_system(f"Starting autonomous mode as {config['character']['name']}...")
     twitter_state.load()
     progress = ProgressIndicator()
     
-    # Add retry configuration
-    max_retries = 3
-    base_wait_time = 60  # 1 minute
-    
+    # Create the runnable config with required keys
+    runnable_config = RunnableConfig(
+        recursion_limit=200,
+        configurable={
+            "thread_id": config["configurable"]["thread_id"],
+            "checkpoint_ns": "autonomous_mode",
+            "checkpoint_id": str(datetime.now().timestamp())
+        }
+    )
+
     while True:
         retry_count = 0
-        
         try:
             if not twitter_state.can_check_mentions():
                 wait_time = max(MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds(), 0)
@@ -611,12 +696,12 @@ def run_autonomous_mode(agent_executor, config):
             2. Check for and reply to new Twitter mentions.
             3. Interact with the selected KOL for reply by replying to their most recent post.
             4. Interact with the selected KOL for retweet by retweeting their most relevant recent tweet.
-            5. Create an original, engaging tweet about one of your topics.
+            5. Create an original, engaging tweet by querying the knowledge base for current trends and insights, and then creating a tweet based on the insights.
 
             Guidelines:
 
             1. Character limits:
-            - Ideal: Less than 45 characters
+            - Ideal: Less than 60 characters
             - Maximum: 280 characters
             2. Format: Single-line responses only
             3. Emoji usage: Prefer no emojis, only use one if it is directly relevant to the tweet
@@ -631,6 +716,7 @@ def run_autonomous_mode(agent_executor, config):
             6. Verify tweet relevance against your approved topics list (blockchain and cryptocurrency).
             7. Do not create multi-part responses or threads.
             8. Always interact with the provided KOLs, ensuring your response matches their topic.
+            9. Avoid unnecessary thought processes to prevent recursion errors.
 
             Available functions:
 
@@ -642,12 +728,23 @@ def run_autonomous_mode(agent_executor, config):
             6. add_replied_tweet(tweet_id: str): Mark a tweet as replied
             7. has_reposted(tweet_id: str): Check if a tweet has been reposted
             8. add_reposted(tweet_id: str): Mark a tweet as reposted
+            9. query_knowledge_base(query: str): Get relevant tweets about current trends
+
+            Before creating an original tweet:
+            1. Query the knowledge base using query_knowledge_base tool for:
+            - Most prominent topics being discussed within the knowledge base
+            - Latest crypto trends and developments
+            - Recent AI advancements and discussions
+            - Current tech industry updates
+            2. Analyze the returned tweets for emerging trends and discussions.
+            3. Create content that incorporates these insights while maintaining your unique voice.
+            4. Reference specific trends without direct quotes.
 
             When creating tweets or replying to mentions:
 
             1. Stay in character with consistent personality traits.
             2. Ensure relevance to the tweet content and match approved topics.
-            3. Be friendly, witty, and engaging.
+            3. Be friendly, witty, funny, and engaging.
             4. Share interesting insights or thought-provoking perspectives when relevant.
             5. Ask follow-up questions to encourage discussion when appropriate.
             6. Adhere to the character limit and style guidelines.
@@ -657,6 +754,10 @@ def run_autonomous_mode(agent_executor, config):
             <account_id>
             [Your account ID retrieved using the account_details() function]
             </account_id>
+
+            <knowledge_base_query>
+            [Your knowledge base query results and insights used]
+            </knowledge_base_query>
 
             <mention_replies>
             [Your replies to any new mentions, if applicable]
@@ -674,7 +775,7 @@ def run_autonomous_mode(agent_executor, config):
             [Content for a new tweet]
             </original_tweet>
 
-            Remember to process all tasks sequentially and use the provided functions as needed. Always interact with the provided KOLs, as there will always be one to engage with for each interaction type.
+            Remember to process all tasks sequentially and use the provided functions as needed. Always interact with the provided KOLs, as there will always be one to engage with for each interaction type. Ensure to avoid unnecessary thought processes to prevent recursion errors. 
 
             You may now begin your tasks.
             """
@@ -683,7 +784,7 @@ def run_autonomous_mode(agent_executor, config):
             for chunk in run_with_progress(
                 agent_executor.stream,
                 {"messages": [HumanMessage(content=thought)]},
-                config
+                runnable_config
             ):
                 if "agent" in chunk:
                     response = chunk["agent"]["messages"][0].content
@@ -741,20 +842,20 @@ def run_autonomous_mode(agent_executor, config):
             print_system("Continuing after error...")
             time.sleep(MENTION_CHECK_INTERVAL)
 
-def main():
+async def main():
     """Start the chatbot agent."""
     try:
-        agent_executor, config = initialize_agent()
+        agent_executor, config, runnable_config = await initialize_agent()
         mode = choose_mode()
         
         if mode == "chat":
-            run_chat_mode(agent_executor=agent_executor, config=config)
+            run_chat_mode(agent_executor=agent_executor, config=config, runnable_config=runnable_config)
         elif mode == "auto":
-            run_autonomous_mode(agent_executor=agent_executor, config=config)
+            run_autonomous_mode(agent_executor=agent_executor, config=config, runnable_config=runnable_config)
     except Exception as e:
         print_error(f"Failed to initialize agent: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
     print("Starting Agent...")
-    main()
+    asyncio.run(main())

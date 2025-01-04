@@ -3,8 +3,14 @@ from json import dumps
 import tweepy
 from pydantic import BaseModel, Field
 from langchain.tools import Tool
-from typing import Optional, List
+from typing import Optional, List, Dict, Union
 import random
+
+class Tweet(BaseModel):
+    id: str
+    text: str
+    created_at: str
+    author_id: str
 
 def delete_tweet(client: tweepy.Client, tweet_id: str) -> str:
     """Delete a tweet from Twitter."""
@@ -63,7 +69,7 @@ def get_user_tweets(client: tweepy.Client, user_id: str, max_results: int = 10) 
                 tweet_id = tweet['id']
                 tweet_text = tweet['text']
                 tweets.append(f"[Tweet ID: {tweet_id}]\n{tweet_text}")
-            
+
             meta = response['meta']
             message = (
                 f"Recent tweets from user {user_id}:\n"
@@ -86,7 +92,7 @@ def create_get_user_tweets_tool(twitter_api_wrapper) -> Tool:
         Optionally specify max_results (default 10) as: get_user_tweets("783214", max_results=5)""",
         func=lambda user_id, max_results=10: twitter_api_wrapper.run_action(
             get_user_tweets, 
-            user_id=user_id, 
+            user_id=user_id,
             max_results=max_results
         )
     )
@@ -108,6 +114,16 @@ def create_retweet_tool(twitter_api_wrapper) -> Tool:
         Input should be the tweet ID as a string.
         Example: retweet("1234567890")""",
         func=lambda tweet_id: twitter_api_wrapper.run_action(retweet, tweet_id=tweet_id)
+    )
+
+def create_query_knowledge_base_tool(knowledge_base) -> Tool:
+    """Create a tool to query the Twitter knowledge base."""
+    return Tool(
+        name="query_knowledge_base",
+        description="""Query the knowledge base for relevant information about current trends.
+        Input should be a query string describing the information you're looking for.
+        Example: query_knowledge_base("latest developments in AI")""",
+        func=lambda query: knowledge_base.query_knowledge_base(query)
     )
 
 
