@@ -8,6 +8,8 @@ import numpy as np
 from custom_twitter_actions import get_user_tweets, get_user_id
 from utils import print_system, print_error
 import asyncio
+import os
+import random
 
 # Add Tweet model definition that was missing
 class Tweet(BaseModel):
@@ -20,7 +22,9 @@ class TweetKnowledgeBase:
     def __init__(self, collection_name: str = "twitter_knowledge"):
         # Initialize ChromaDB client with persistence
         self.client = chromadb.PersistentClient(path="./chroma_db")
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Use a more advanced embedding model
+        self.embedding_model = SentenceTransformer('all-mpnet-base-v2')
         
         # Create embedding function that matches ChromaDB's expected interface
         class EmbeddingFunction:
@@ -124,128 +128,121 @@ class TweetKnowledgeBase:
         """Get statistics about the knowledge base collection."""
         try:
             count = self.collection.count()
+            metadata = self.collection.get()
+            last_update = None
+            if metadata.get("metadatas"):
+                # Get most recent tweet timestamp
+                last_update = max(m["created_at"] for m in metadata["metadatas"])
+                last_update = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+            
             print_system(f"Knowledge base contains {count} tweets")
-            return {"count": count}
+            return {
+                "count": count,
+                "last_update": last_update or datetime.now()
+            }
         except Exception as e:
             print_error(f"Error getting collection stats: {str(e)}")
-            return {"count": 0}
+            return {"count": 0, "last_update": datetime.now()}
 
     def clear_collection(self) -> bool:
         """Clear all tweets from the knowledge base."""
         try:
             print_system("Clearing knowledge base collection...")
-            self.collection.delete(ids=self.collection.get()["ids"])
-            print_system("Knowledge base cleared successfully")
+            ids = self.collection.get()["ids"]
+            if ids:  # Only attempt to delete if there are IDs
+                self.collection.delete(ids=ids)
+                print_system("Knowledge base cleared successfully")
+            else:
+                print_system("Knowledge base is already empty")
             return True
         except Exception as e:
             print_error(f"Error clearing knowledge base: {str(e)}")
             return False
 
-async def update_knowledge_base(twitter_api_wrapper, knowledge_base, kol_ids: List[str]):
-    """Update the knowledge base with recent tweets from key opinion leaders."""
+async def update_knowledge_base(twitter_api_wrapper, knowledge_base, kol_list: List[Dict]):
+    """Update the knowledge base with recent tweets from top KOLs."""
+    TOP_KOLS = 5
+    TWEETS_PER_KOL = 15
+    REQUEST_DELAY = 5
+    
+    update_time = datetime.now()
     all_tweets = []
-    print_system(f"Starting knowledge base update for {len(kol_ids)} KOLs...")
+    top_kols = random.sample(kol_list, min(TOP_KOLS, len(kol_list)))
     
-    # Constants for rate limiting
-    BATCH_SIZE = 10  # Process 10 users per 15-minute window (max app limit)
-    WINDOW_DURATION = 15 * 60  # 15 minutes in seconds
-    REQUEST_DELAY = 90  # 90 seconds between requests (15 minutes / 10 requests = 90 seconds)
+    print_system(f"Starting knowledge base update at {update_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     
-    # Process users in batches
-    for i in range(0, len(kol_ids), BATCH_SIZE):
-        batch = kol_ids[i:i + BATCH_SIZE]
-        print_system(f"Processing batch {i//BATCH_SIZE + 1} of {(len(kol_ids) + BATCH_SIZE - 1)//BATCH_SIZE}")
+    # Clear existing knowledge base
+    try:
+        knowledge_base.clear_collection()
+        print_system("Cleared existing knowledge base")
+    except Exception as e:
+        print_error(f"Error clearing knowledge base: {e}")
+        return
+    
+    print_system(f"Processing {len(top_kols)} randomly selected KOLs...")
+    
+    for kol in top_kols:
+        print_system(f"Fetching {TWEETS_PER_KOL} tweets for {kol['username']}")
+        kol_tweets = []
         
-        for username in batch:
-            print_system(f"Converting username to ID: {username}")
-            try:
-                # Get user ID
-                response = twitter_api_wrapper.run_action(
-                    get_user_id,
-                    username=username
-                )
-                
-                # Add delay after user ID request
-                await asyncio.sleep(REQUEST_DELAY)
-                
-                # Parse the user ID from the response message
-                if "Found user" in response:
-                    user_id = response.split("with ID: ")[1].strip()
-                    print_system(f"Fetching tweets for {username} (ID: {user_id})")
-                    
-                    response = twitter_api_wrapper.run_action(
-                        get_user_tweets, 
-                        user_id=user_id,
-                        max_results=10
-                    )
-                    
-                    # Debug the response
-                    print_system(f"Raw response type: {type(response)}")
-                    print_system(f"Raw response content: {response[:500]}...")
-                    
-                    try:
-                        # Parse the response into Tweet objects
-                        tweets_data = []
-                        if isinstance(response, str):
-                            tweet_blocks = [block.strip() for block in response.split("\n\n") if block.strip()]
-                            
-                            for block in tweet_blocks:
-                                print_system(f"Processing tweet block: {block[:200]}...")
-                                
-                                if "[Tweet ID:" in block:
-                                    try:
-                                        tweet_id = block.split("[Tweet ID: ")[1].split("]")[0].strip()
-                                        tweet_text = block.split("]\n", 1)[1].strip() if "]\n" in block else ""
-                                        
-                                        if tweet_id and tweet_text:
-                                            tweets_data.append(
-                                                Tweet(
-                                                    id=tweet_id,
-                                                    text=tweet_text,
-                                                    created_at=datetime.now().isoformat(),
-                                                    author_id=user_id
-                                                )
-                                            )
-                                            print_system(f"Successfully parsed tweet ID: {tweet_id}")
-                                    except Exception as e:
-                                        print_error(f"Error parsing individual tweet block: {str(e)}")
-                                        continue
-                        
-                        if tweets_data:
-                            print_system(f"Successfully parsed {len(tweets_data)} tweets for {username}")
-                            all_tweets.extend(tweets_data)
-                            
-                            # If we have accumulated enough tweets, add them to the knowledge base
-                            if len(all_tweets) >= 50:
-                                print_system(f"Adding batch of {len(all_tweets)} tweets to knowledge base")
-                                knowledge_base.add_tweets(all_tweets)
-                                all_tweets = []
-                        else:
-                            print_error(f"No tweets could be parsed for {username}")
-                            print_system("Tweet blocks found: " + str(len(tweet_blocks)) if 'tweet_blocks' in locals() else "No tweet blocks found")
-                            
-                    except Exception as e:
-                        print_error(f"Error parsing tweets for {username}: {str(e)}")
-                        continue
-                        
-            except Exception as e:
-                print_error(f"Error processing user {username}: {str(e)}")
-                continue
+        response = twitter_api_wrapper.run_action(
+            get_user_tweets, 
+            user_id=kol['user_id'],
+            max_results=TWEETS_PER_KOL
+        )
+        
+        # Check for rate limit error immediately
+        if isinstance(response, str) and "429 Too Many Requests" in response:
+            print_error("X API rate limit reached. Please try again in 15 minutes.")
+            return  # Exit the function immediately
             
-            # Add delay between users within the batch
-            await asyncio.sleep(REQUEST_DELAY)
-        
-        # After processing a batch, wait for the rate limit window to reset
-        if i + BATCH_SIZE < len(kol_ids):
-            wait_time = WINDOW_DURATION
-            print_system(f"Rate limit window reached. Waiting {wait_time/60:.1f} minutes before next batch...")
-            await asyncio.sleep(wait_time)
-    
-    # Add any remaining tweets
+        # Rest of the tweet processing logic...
+        if isinstance(response, str):
+            tweet_blocks = [block.strip() for block in response.split("\n\n") if block.strip()]
+            
+            for block in tweet_blocks:
+                if "[Tweet ID:" in block:
+                    try:
+                        # Extract tweet ID
+                        tweet_parts = block.split("]")
+                        tweet_id = tweet_parts[0].split("[Tweet ID: ")[1].strip()
+                        
+                        # Set created_at to current time if not found
+                        created_at = datetime.now().isoformat()
+                        try:
+                            created_at = next(part.split("[Created: ")[1].strip() 
+                                           for part in tweet_parts if "[Created: " in part)
+                        except StopIteration:
+                            # If no timestamp found, keep using current time
+                            pass
+                        
+                        # Get tweet text by removing the Tweet ID metadata
+                        tweet_text = block.replace(f"[Tweet ID: {tweet_id}]", "").strip()
+                        
+                        if tweet_id and tweet_text:
+                            print_system(f"Successfully parsed tweet ID: {tweet_id}")
+                            kol_tweets.append(
+                                Tweet(
+                                    id=tweet_id,
+                                    text=tweet_text,
+                                    created_at=created_at,
+                                    author_id=kol['user_id']
+                                )
+                            )
+                    except Exception as e:
+                        print_error(f"Error parsing tweet block: {str(e)}")
+                        print_error(f"Problematic block: {block}")
+                        continue
+            
+            print_system(f"Processed {len(kol_tweets)} tweets from {kol['username']}")
+            all_tweets.extend(kol_tweets)  # Add KOL's tweets to total
+            
     if all_tweets:
-        print_system(f"Adding final batch of {len(all_tweets)} tweets to knowledge base")
+        print_system(f"Adding {len(all_tweets)} tweets to knowledge base")
         try:
             knowledge_base.add_tweets(all_tweets)
-            print_system("Successfully added final batch to knowledge base")
+            print_system(f"Knowledge base updated successfully at {update_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         except Exception as e:
-            print_error(f"Error adding final batch to knowledge base: {str(e)}") 
+            print_error(f"Error updating knowledge base: {e}")
+    else:
+        print_system("No new tweets to add to knowledge base") 

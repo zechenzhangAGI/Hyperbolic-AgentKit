@@ -363,14 +363,14 @@ def process_character_config(character: Dict[str, Any]) -> str:
         - Double-check the word count of your response and adjust if necessary to meet the character limit.
         """
 
-    print_system(personality)
+    # print_system(personality)
 
     return personality
 
 
 
 async def initialize_agent():
-    """Initialize the agent with CDP Agentkit and Hyperbolic Agentkit."""
+    """Initialize the agent with tools and configuration."""
     try:
         print_system("Initializing LLM...")
         llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
@@ -401,13 +401,14 @@ async def initialize_agent():
                 "style": character.get("style", {}),
                 "messageExamples": character.get("messageExamples", []),
                 "postExamples": character.get("postExamples", []),
-                "kol_list": character.get("kol_list", [])
+                "kol_list": character.get("kol_list", []),
+                "accountid": character.get("accountid")
             }
         }
 
         print_system("Initializing Twitter API wrapper...")
-        twitter_api_wrapper = TwitterApiWrapper()
-        twitter_toolkit = TwitterToolkit.from_twitter_api_wrapper(twitter_api_wrapper)
+        twitter_api_wrapper = TwitterApiWrapper(config=config)
+        
         
         
         print_system("Initializing knowledge base...")
@@ -479,16 +480,11 @@ async def initialize_agent():
             f.write(wallet_data)
 
         # Initialize toolkits and get tools
+        twitter_toolkit = TwitterToolkit.from_twitter_api_wrapper(twitter_api_wrapper)
         cdp_toolkit = CdpToolkit.from_cdp_agentkit_wrapper(agentkit)
-        tools = cdp_toolkit.get_tools()
-
         hyperbolic_agentkit = HyperbolicAgentkitWrapper()
         hyperbolic_toolkit = HyperbolicToolkit.from_hyperbolic_agentkit_wrapper(hyperbolic_agentkit)
-        tools.extend(hyperbolic_toolkit.get_tools())
 
-        tools.extend(twitter_toolkit.get_tools())
-
-        
         # Create deploy multi-token tool
         deployMultiTokenTool = CdpTool(
             name="deploy_multi_token",
@@ -497,37 +493,17 @@ async def initialize_agent():
             args_schema=DeployMultiTokenInput,
             func=deploy_multi_token,
         )
-
-        # Add additional tools
-        tools.extend([
-            deployMultiTokenTool,
-            DuckDuckGoSearchRun(
-                name="web_search",
-                description="Search the internet for current information."
-            ),
-            check_replied_tool,
-            add_replied_tool,
-            check_reposted_tool,
-            add_reposted_tool,
-            # retrieval_tool
-        ])
-
         # Add our custom delete tweet tool
         delete_tweet_tool = create_delete_tweet_tool(twitter_api_wrapper)
         get_user_id_tool = create_get_user_id_tool(twitter_api_wrapper)
         user_tweets_tool = create_get_user_tweets_tool(twitter_api_wrapper)
         retweet_tool = create_retweet_tool(twitter_api_wrapper)
-        tools.extend([delete_tweet_tool, get_user_id_tool, user_tweets_tool, retweet_tool])
 
         # Add request tools
         toolkit = RequestsToolkit(
             requests_wrapper=TextRequestsWrapper(headers={}),
             allow_dangerous_requests=ALLOW_DANGEROUS_REQUEST,
         )   
-        tools.extend(toolkit.get_tools())
-
-        memory = MemorySaver()
-
         # Create knowledge base query tool
         query_kb_tool = Tool(
             name="query_knowledge_base",
@@ -537,18 +513,77 @@ async def initialize_agent():
             description="Query the knowledge base for relevant tweets about crypto/AI/tech trends. Input should be a search query string."
         )
         
-        # Add knowledge base tool to tools list
-        tools.extend([query_kb_tool])
+        memory = MemorySaver()
+
+        # Initialize with minimum required tools
+        tools = []
+
+        # Knowledge Base Tool
+        if os.getenv("USE_KNOWLEDGE_BASE", "true").lower() == "true":
+            tools.append(Tool(
+                name="query_knowledge_base",
+                description="Query the knowledge base for relevant tweets about crypto/AI/tech trends.",
+                func=lambda query: knowledge_base.query_knowledge_base(query)
+            ))
+
+        # CDP Toolkit Tools
+        if os.getenv("USE_CDP_TOOLS", "false").lower() == "true":
+            tools.extend(cdp_toolkit.get_tools())
+
+        # Hyperbolic Toolkit Tools
+        if os.getenv("USE_HYPERBOLIC_TOOLS", "false").lower() == "true":
+            tools.extend(hyperbolic_toolkit.get_tools())
+
+        # Twitter Core Tools
+        if os.getenv("USE_TWITTER_CORE", "true").lower() == "true":
+            tools.extend(twitter_toolkit.get_tools())
+
+        # Twitter Interaction Tools
+        if os.getenv("USE_TWEET_REPLY_TRACKING", "true").lower() == "true":
+            tools.extend([check_replied_tool, add_replied_tool])
+
+        if os.getenv("USE_TWEET_REPOST_TRACKING", "true").lower() == "true":
+            tools.extend([check_reposted_tool, add_reposted_tool])
+
+        if os.getenv("USE_TWEET_DELETE", "true").lower() == "true":
+            tools.append(delete_tweet_tool)
+
+        if os.getenv("USE_USER_ID_LOOKUP", "true").lower() == "true":
+            tools.append(get_user_id_tool)
+
+        if os.getenv("USE_USER_TWEETS_LOOKUP", "true").lower() == "true":
+            tools.append(user_tweets_tool)
+
+        if os.getenv("USE_RETWEET", "true").lower() == "true":
+            tools.append(retweet_tool)
+
+        # Multi-token Deployment Tool
+        if os.getenv("USE_DEPLOY_MULTITOKEN", "false").lower() == "true":
+            tools.append(deployMultiTokenTool)
+
+        # Web Search Tool
+        if os.getenv("USE_WEB_SEARCH", "false").lower() == "true":
+            tools.append(DuckDuckGoSearchRun(
+                name="web_search",
+                description="Search the internet for current information."
+            ))
+
+        # Request Tools
+        if os.getenv("USE_REQUEST_TOOLS", "false").lower() == "true":
+            tools.extend(toolkit.get_tools())
 
         # Create the runnable config with increased recursion limit
         runnable_config = RunnableConfig(recursion_limit=200)
+
+        for tool in tools:
+            print_system(tool.name)
 
         return create_react_agent(
             llm,
             tools=tools,
             checkpointer=memory,
             state_modifier=personality,
-        ), config, runnable_config
+        ), config, runnable_config, twitter_api_wrapper, knowledge_base
 
     except Exception as e:
         print_error(f"Error initializing agent: {e}")
@@ -569,26 +604,44 @@ def choose_mode():
             return "auto"
         print("Invalid choice. Please try again.")
 
-def run_with_progress(func, *args, **kwargs):
+async def run_with_progress(func, *args, **kwargs):
     """Run a function while showing a progress indicator between outputs."""
     progress = ProgressIndicator()
     
     try:
+        # Handle both async and sync generators
         generator = func(*args, **kwargs)
-        for chunk in generator:
-            progress.stop()  # Stop spinner before output
-            yield chunk     # Yield the chunk immediately
-            progress.start()  # Restart spinner while waiting for next chunk
+        
+        if hasattr(generator, '__aiter__'):  # Check if it's an async generator
+            async for chunk in generator:
+                progress.stop()  # Stop spinner before output
+                yield chunk     # Yield the chunk immediately
+                progress.start()  # Restart spinner while waiting for next chunk
+        else:  # Handle synchronous generators
+            for chunk in generator:
+                progress.stop()
+                yield chunk
+                progress.start()
             
     finally:
         progress.stop()
 
-def run_chat_mode(agent_executor, config, runnable_config):
+async def run_chat_mode(agent_executor, config, runnable_config):
     """Run the agent interactively based on user input."""
     print_system("Starting chat mode... Type 'exit' to end.")
     print_system("Commands:")
     print_system("  exit     - Exit the chat")
     print_system("  status   - Check if agent is responsive")
+    
+    # Create the runnable config with required keys
+    runnable_config = RunnableConfig(
+        recursion_limit=200,
+        configurable={
+            "thread_id": config["configurable"]["thread_id"],
+            "checkpoint_ns": "chat_mode",
+            "checkpoint_id": str(datetime.now().timestamp())
+        }
+    )
     
     while True:
         try:
@@ -606,9 +659,9 @@ def run_chat_mode(agent_executor, config, runnable_config):
             
             print_system(f"\nStarted at: {datetime.now().strftime('%H:%M:%S')}")
             
-            # Process chunks as they arrive
-            for chunk in run_with_progress(
-                agent_executor.stream,
+            # Process chunks using the updated runnable_config with async handling
+            async for chunk in run_with_progress(
+                agent_executor.astream,  # Use astream instead of stream
                 {"messages": [HumanMessage(content=user_input)]},
                 runnable_config
             ):
@@ -629,11 +682,14 @@ class AgentExecutionError(Exception):
     """Custom exception for agent execution errors."""
     pass
 
-def run_autonomous_mode(agent_executor, config, runnable_config):
+async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_api_wrapper, knowledge_base):
     """Run the agent autonomously with specified intervals."""
     print_system(f"Starting autonomous mode as {config['character']['name']}...")
     twitter_state.load()
-    progress = ProgressIndicator()
+    
+    # Reset last_check_time on startup to ensure immediate first run
+    twitter_state.last_check_time = None
+    twitter_state.save()
     
     # Create the runnable config with required keys
     runnable_config = RunnableConfig(
@@ -644,62 +700,76 @@ def run_autonomous_mode(agent_executor, config, runnable_config):
             "checkpoint_id": str(datetime.now().timestamp())
         }
     )
-
+    
     while True:
-        retry_count = 0
         try:
+            # Check mention timing - only wait if we've checked too recently
             if not twitter_state.can_check_mentions():
-                wait_time = max(MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds(), 0)
+                wait_time = MENTION_CHECK_INTERVAL - (datetime.now() - twitter_state.last_check_time).total_seconds()
                 if wait_time > 0:
-                    print_system(f"Waiting {int(wait_time)} seconds before next check...")
-                    time.sleep(wait_time)
+                    print_system(f"Waiting {int(wait_time)} seconds before next mention check...")
+                    await asyncio.sleep(wait_time)
                     continue
 
             # Update last_check_time at the start of each check
             twitter_state.last_check_time = datetime.now()
             twitter_state.save()
 
-            print_system("Checking for new mentions and creating new post...")
-            
-            selected_kol_for_reply = random.choice(config['character']['kol_list'])
-            selected_kol_for_retweet = random.choice(config['character']['kol_list'])
+            # Update knowledge base at the start of each cycle
+            print_system("Updating knowledge base with recent KOL tweets...")
+            try:
+                await update_knowledge_base(
+                    twitter_api_wrapper,
+                    knowledge_base,
+                    config['character']['kol_list']
+                )
+                print_system("Knowledge base update completed")
+            except Exception as e:
+                print_error(f"Error updating knowledge base: {e}")
 
-            print_system(f"Selected KOL for reply: {selected_kol_for_reply}")
-            print_system(f"Selected KOL for retweet: {selected_kol_for_retweet}")
+            print_system("Checking for new mentions, interacting with KOLs, and creating new post...")
+            
+            # Select unique KOLs for interaction using random.sample
+            NUM_KOLS = 1  # Define constant for number of KOLs to interact with
+            selected_kols = random.sample(config['character']['kol_list'], NUM_KOLS)
+
+            # Log selected KOLs
+            for i, kol in enumerate(selected_kols, 1):
+                print_system(f"Selected KOL {i}: {kol['username']}")
+            
+            # Create KOL XML structure for the prompt
+            kol_xml = "\n".join([
+                f"""<kol_{i+1}>
+                <username>{kol['username']}</username>
+                <user_id>{kol['user_id']}</user_id>
+                </kol_{i+1}>""" 
+                for i, kol in enumerate(selected_kols)
+            ])
             
             thought = f"""
-            You are an AI-powered Twitter bot specializing in blockchain and cryptocurrency. Your tasks are to create engaging original tweets, respond to mentions, and interact with key opinion leaders (KOLs) in the industry. Here's the essential information for your operation:
+            You are an AI-powered Twitter bot specializing in blockchain and cryptocurrency. Your role is to create engaging original tweets, respond to mentions, and interact with key opinion leaders (KOLs) in the industry. Here's the essential information for your operation:
 
-            <selected_kol_for_reply>
-            {selected_kol_for_reply}
-            </selected_kol_for_reply>
+            <account_info>
+            <account_id>{config['character']['accountid']}</account_id>
+            </account_info>
 
-            <selected_kol_for_retweet>
-            {selected_kol_for_retweet}
-            </selected_kol_for_retweet>
+            <kol_list>
+            {kol_xml}
+            </kol_list>
 
-            <mention_check_interval>
-            {MENTION_CHECK_INTERVAL}
-            </mention_check_interval>
+            <twitter_settings>
+            <mention_check_interval>{MENTION_CHECK_INTERVAL}</mention_check_interval>
+            <last_mention_id>{twitter_state.last_mention_id}</last_mention_id>
+            <current_time>{datetime.now().strftime('%H:%M:%S')}</current_time>
+            </twitter_settings>
 
-            <last_mention_id>
-            {twitter_state.last_mention_id}
-            </last_mention_id>
-
-            <current_time>
-            {datetime.now().strftime('%H:%M:%S')}
-            </current_time>
-
-            Your main objectives are to be completed in the following order:
-
-            1. Retrieve your own account ID.
+            Your main objectives that MUST BE COMPLETED are:
+            1. Query the knowledge base for current trends and insights.
             2. Check for and reply to new Twitter mentions.
-            3. Interact with the selected KOL for reply by replying to their most recent post.
-            4. Interact with the selected KOL for retweet by retweeting their most relevant recent tweet.
-            5. Create an original, engaging tweet by querying the knowledge base for current trends and insights, and then creating a tweet based on the insights.
+            3. YOU MUST interact with every single one of the {NUM_KOLS} selected KOLs by replying to their most recent and relevant tweet. DO NOT SKIP ANY KOL.
+            4. Create one original, engaging tweet based on the insights from the knowledge base query.
 
             Guidelines:
-
             1. Character limits:
             - Ideal: Less than 60 characters
             - Maximum: 280 characters
@@ -707,41 +777,46 @@ def run_autonomous_mode(agent_executor, config, runnable_config):
             3. Emoji usage: Prefer no emojis, only use one if it is directly relevant to the tweet
 
             Important rules:
-
-            1. Process tasks sequentially as outlined above.
+            1. Process tasks sequentially as outlined in the objectives.
+            2. Do not use the account_details tool to get any user IDs. The root account ID as well as the KOL account IDs have been passed into the prompt.
             2. Only process mentions newer than the last processed mention ID.
             3. Before replying to any mention, use the has_replied_to function to check if you've already responded.
             4. Only reply if has_replied_to returns False.
             5. After a successful reply, use the add_replied_tweet function to store the tweet_id in the database.
-            6. Verify tweet relevance against your approved topics list (blockchain and cryptocurrency).
+            6. Verify tweet relevance against your approved topics (blockchain and cryptocurrency).
             7. Do not create multi-part responses or threads.
-            8. Always interact with the provided KOLs, ensuring your response matches their topic.
+            8. Always interact with all five provided KOLs, ensuring your response matches their topic.
             9. Avoid unnecessary thought processes to prevent recursion errors.
+            10. Use the provided account ID and KOL user IDs. Do not use the get_user_id tool to retrieve them.
+           
+            Process:
+            1. Query the knowledge base once using query_knowledge_base() for trending discussions:
+      
+            # Example queries to understand current discussions:
+            "What are the most discussed topics in the last 24 hours?"
+            "What projects or cryptocurrencies are people talking about most?"
+            "What are the key debates or discussions happening in crypto/AI right now?"
+            "Summarize the main sentiment and trends from recent discussions"
 
-            Available functions:
-
-            1. account_details(): Get the account ID to monitor
-            2. create_tweet(content: str): Post a new tweet
-            3. get_mentions(): Retrieve new mentions
-            4. reply_to_tweet(tweet_id: str, content: str): Reply to a specific tweet
-            5. has_replied_to(tweet_id: str): Check if a tweet has been replied to
-            6. add_replied_tweet(tweet_id: str): Mark a tweet as replied
-            7. has_reposted(tweet_id: str): Check if a tweet has been reposted
-            8. add_reposted(tweet_id: str): Mark a tweet as reposted
-            9. query_knowledge_base(query: str): Get relevant tweets about current trends
-
-            Before creating an original tweet:
-            1. Query the knowledge base using query_knowledge_base tool for:
-            - Most prominent topics being discussed within the knowledge base
-            - Latest crypto trends and developments
-            - Recent AI advancements and discussions
-            - Current tech industry updates
+            The query should focus on:
+            - Hot topics and trending conversations
+            - Recurring themes or patterns in discussions
+            - Notable opinions or insights from KOLs
+            - Emerging trends or shifts in sentiment
+            - Controversial or highly-engaged topics
+            - Breaking news or developments being discussed
             2. Analyze the returned tweets for emerging trends and discussions.
-            3. Create content that incorporates these insights while maintaining your unique voice.
-            4. Reference specific trends without direct quotes.
+            3. Check for new mentions using get_mentions() and process them:
+            - For each mention that is newer than the last_mention_id, check if you've replied using has_replied_to().
+            - If not replied, create a response and use reply_to_tweet().
+            - After replying, mark as replied using add_replied_tweet().
+            4. For each of the KOLs:
+            - Retrieve their recent tweets using get_user_tweets().
+            - Select the most relevant and recent tweet to reply to.
+            - Create a reply for the selected tweet and use reply_to_tweet().
+            5. Create one original tweet based on the knowledge base insights using create_tweet().
 
             When creating tweets or replying to mentions:
-
             1. Stay in character with consistent personality traits.
             2. Ensure relevance to the tweet content and match approved topics.
             3. Be friendly, witty, funny, and engaging.
@@ -749,11 +824,31 @@ def run_autonomous_mode(agent_executor, config, runnable_config):
             5. Ask follow-up questions to encourage discussion when appropriate.
             6. Adhere to the character limit and style guidelines.
 
-            Your output should be structured as follows:
+            Before executing each step, wrap your thought process in <thought_process> tags. This will help ensure thoughtful and relevant interactions. In your analysis:
 
-            <account_id>
-            [Your account ID retrieved using the account_details() function]
-            </account_id>
+            1. For the knowledge base query:
+            - List key topics and trends identified
+            - Explain how these insights will inform your tweets and interactions
+            - Rank the topics by relevance and potential for engagement
+
+            2. For mention replies:
+            - Analyze the content and relevance of each mention to blockchain and cryptocurrency
+            - Explain your approach to crafting appropriate responses
+            - Consider how to add value or insights to the conversation
+
+            3. For KOL interactions:
+            - Summarize recent tweets from each KOL
+            - Explain your criteria for selecting tweets to reply to, focusing on relevance to blockchain and cryptocurrency
+            - Ensure you're interacting with all five KOLs
+            - Brainstorm unique angles or insights you can add to each interaction
+
+            4. For original tweets:
+            - Brainstorm at least three ideas based on the knowledge base insights
+            - Explain how you refined these ideas into an engaging tweet
+            - Consider how each idea aligns with current trends and your bot's personality
+            - Explain why you chose the final tweet idea over the others
+
+            Your output should be structured as follows:
 
             <knowledge_base_query>
             [Your knowledge base query results and insights used]
@@ -763,29 +858,28 @@ def run_autonomous_mode(agent_executor, config, runnable_config):
             [Your replies to any new mentions, if applicable]
             </mention_replies>
 
-            <kol_reply>
-            [Your reply to the selected KOL's most recent post]
-            </kol_reply>
+            <kol_interactions>
+            [For each of the five selected KOLs:]
+            <kol_name>[KOL's name]</kol_name>
+            <reply_to>
+                <tweet_id>[ID of the tweet you're replying to]</tweet_id>
+                <reply_content>[Your reply content]</reply_content>
+            </reply_to>
+            </kol_interactions>
 
-            <kol_retweet>
-            [The tweet ID of the selected KOL's most relevant tweet that you've retweeted]
-            </kol_retweet>
+            <original_tweets>
+            <tweet_1>[Content for new tweet]</tweet_1>
+            </original_tweets>
 
-            <original_tweet>
-            [Content for a new tweet]
-            </original_tweet>
-
-            Remember to process all tasks sequentially and use the provided functions as needed. Always interact with the provided KOLs, as there will always be one to engage with for each interaction type. Ensure to avoid unnecessary thought processes to prevent recursion errors. 
-
-            You may now begin your tasks.
+            Remember to use the provided functions as needed and adhere to all guidelines and rules throughout your interactions.
             """
 
-            # Process chunks as they arrive (only once)
-            for chunk in run_with_progress(
-                agent_executor.stream,
+            # Process chunks as they arrive using async for
+            async for chunk in agent_executor.astream(
                 {"messages": [HumanMessage(content=thought)]},
                 runnable_config
             ):
+                print_system(chunk)
                 if "agent" in chunk:
                     response = chunk["agent"]["messages"][0].content
                     print_ai(format_ai_message_content(response))
@@ -806,52 +900,44 @@ def run_autonomous_mode(agent_executor, config, runnable_config):
                                         twitter_state.last_check_time = datetime.now()
                                         twitter_state.save()
                                 
-                                elif item.get('name') == 'add_reposted':
-                                    tweet_id = item['input'].get('__arg1')
-                                    if tweet_id:
-                                        print_system(f"Adding tweet {tweet_id} to reposted database...")
-                                        result = twitter_state.add_reposted_tweet(tweet_id)
-                                        print_system(result)
-                
                 elif "tools" in chunk:
                     print_system(chunk["tools"]["messages"][0].content)
                 print_system("-------------------")
 
             print_system(f"Completed cycle. Waiting {MENTION_CHECK_INTERVAL/60} minutes before next check...")
-            time.sleep(MENTION_CHECK_INTERVAL)
+            await asyncio.sleep(MENTION_CHECK_INTERVAL)
 
         except KeyboardInterrupt:
             print_system("\nSaving state and exiting...")
             twitter_state.save()
             sys.exit(0)
             
-        except AgentExecutionError as e:
-            print_error(f"Agent execution failed: {str(e)}")
-            print_system("Skipping current cycle and continuing...")
-            time.sleep(MENTION_CHECK_INTERVAL)
-            
         except Exception as e:
             print_error(f"Unexpected error: {str(e)}")
             print_error(f"Error type: {type(e).__name__}")
-            print_error(f"Error details: {str(e)}")
             if hasattr(e, '__traceback__'):
                 import traceback
-                print_error("Traceback:")
                 traceback.print_tb(e.__traceback__)
             
             print_system("Continuing after error...")
-            time.sleep(MENTION_CHECK_INTERVAL)
+            await asyncio.sleep(MENTION_CHECK_INTERVAL)
 
 async def main():
     """Start the chatbot agent."""
     try:
-        agent_executor, config, runnable_config = await initialize_agent()
+        agent_executor, config, runnable_config, twitter_api_wrapper, knowledge_base = await initialize_agent()
         mode = choose_mode()
         
         if mode == "chat":
-            run_chat_mode(agent_executor=agent_executor, config=config, runnable_config=runnable_config)
+            await run_chat_mode(agent_executor=agent_executor, config=config, runnable_config=runnable_config)
         elif mode == "auto":
-            run_autonomous_mode(agent_executor=agent_executor, config=config, runnable_config=runnable_config)
+            await run_autonomous_mode(
+                agent_executor=agent_executor,
+                config=config,
+                runnable_config=runnable_config,
+                twitter_api_wrapper=twitter_api_wrapper,
+                knowledge_base=knowledge_base
+            )
     except Exception as e:
         print_error(f"Failed to initialize agent: {e}")
         sys.exit(1)

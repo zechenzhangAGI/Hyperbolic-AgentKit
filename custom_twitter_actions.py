@@ -9,7 +9,6 @@ import random
 class Tweet(BaseModel):
     id: str
     text: str
-    created_at: str
     author_id: str
 
 def delete_tweet(client: tweepy.Client, tweet_id: str) -> str:
@@ -31,10 +30,20 @@ def create_delete_tweet_tool(twitter_api_wrapper) -> Tool:
         func=lambda tweet_id: twitter_api_wrapper.run_action(delete_tweet, tweet_id=tweet_id)
     )
 
-def get_user_id(client: tweepy.Client, username: str) -> str:
+def get_user_id(client: tweepy.Client, username: str, kol_list: List[Dict] = None, bot_account_id: str = None) -> str:
     """Get a user's ID from their username."""
     try:
-        # The get_user method in tweepy handles the /2/users/by endpoint
+        # First check if this is the bot's own username
+        if bot_account_id and username.lower() == client.get_user(id=bot_account_id)['data']['username'].lower():
+            return f"Found bot's own account with ID: {bot_account_id}"
+            
+        # Then check if the username exists in kol_list
+        if kol_list:
+            for kol in kol_list:
+                if kol["username"].lower() == username.lower():
+                    return f"Found user '{kol['username']}' with ID: {kol['user_id']} (from KOL list)"
+        
+        # If not found in either, fetch from Twitter API
         response = client.get_user(username=username)
         if response:
             user_id = response['data']['id']
@@ -53,7 +62,12 @@ def create_get_user_id_tool(twitter_api_wrapper) -> Tool:
         description="""Get a Twitter user's ID from their username.
         Input should be the username as a string (without the @ symbol).
         Example: get_user_id("TwitterDev")""",
-        func=lambda username: twitter_api_wrapper.run_action(get_user_id, username=username)
+        func=lambda username: twitter_api_wrapper.run_action(
+            get_user_id, 
+            username=username,
+            kol_list=twitter_api_wrapper.config.get('character', {}).get('kol_list', []),
+            bot_account_id=twitter_api_wrapper.config.get('character', {}).get('accountid')
+        )
     )
 
 def get_user_tweets(client: tweepy.Client, user_id: str, max_results: int = 10) -> str:
