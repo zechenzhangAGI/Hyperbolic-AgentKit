@@ -69,8 +69,13 @@ def get_spend_history() -> str:
             cost = (duration_hours * instance["price"]["amount"]) / 100.0
             total_cost += cost
 
-            # Get GPU model and count from this instance
-            gpu_model = instance["hardware"]["gpus"][0]["model"]  # All GPUs are the same model
+            # Get GPU model and count from this instance - with validation
+            gpus = instance["hardware"].get("gpus", [])
+            if not gpus:
+                gpu_model = "Unknown GPU"
+            else:
+                gpu_model = gpus[0].get("model", "Unknown GPU")  # Safely get GPU model
+            
             gpu_count = instance["gpu_count"]
             gpu_stats[gpu_model]["count"] += gpu_count
             gpu_stats[gpu_model]["total_cost"] += cost
