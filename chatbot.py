@@ -451,8 +451,7 @@ def process_character_config(character: Dict[str, Any]) -> str:
 
         2. Compute Operations (via Hyperbolic):
         - Rent compute resources
-        - Check rented GPU status
-        - Check GPU availability for renting
+        - Check GPU status and availability
         - Connect to remote servers via SSH (use ssh_connect)
         - Execute commands on remote server (use remote_shell)
 
@@ -499,7 +498,6 @@ def process_character_config(character: Dict[str, Any]) -> str:
             - Contains relevant keyword
             - Directly matches conversation topic
             - Appropriate emoji usage (if any)
-        15. If your task requires a machine or a GPU, first check if you have a rented one using the get_gpu_status tool. If not, check the available GPUs for renting using the get_gpu_availability tool.
 
         When using tools:
         1. Check if you've replied to tweets using has_replied_to
@@ -571,7 +569,7 @@ async def initialize_agent():
 
         print_system("Loading character configuration...")
         try:
-            characters = loadCharacters(os.getenv("CHARACTER_FILE", "default.json"))
+            characters = loadCharacters(os.getenv("CHARACTER_FILE", "chainyoda.json"))
             character = characters[0]  # Use first character if multiple loaded
         except Exception as e:
             print_error(f"Error loading character: {e}")
@@ -770,6 +768,19 @@ async def initialize_agent():
                 ),
                 description="Query the podcast knowledge base for relevant podcast segments about crypto/Web3/gaming. Input should be a search query string."
             ))
+<<<<<<< HEAD
+            
+=======
+>>>>>>> b5b88e2 (initial work)
+
+        if os.getenv("USE_PODCAST_KNOWLEDGE_BASE", "true").lower() == "true" and podcast_knowledge_base is not None:
+            tools.append(Tool(
+                name="query_podcast_knowledge_base",
+                func=lambda query: podcast_knowledge_base.format_query_results(
+                    podcast_knowledge_base.query_knowledge_base(query)
+                ),
+                description="Query the podcast knowledge base for relevant podcast segments about crypto/Web3/gaming. Input should be a search query string."
+            ))
             
 
         # CDP Toolkit Tools
@@ -777,7 +788,7 @@ async def initialize_agent():
             tools.extend(cdp_toolkit.get_tools())
 
         # Hyperbolic Toolkit Tools
-        if os.getenv("USE_HYPERBOLIC_TOOLS", "true").lower() == "true":
+        if os.getenv("USE_HYPERBOLIC_TOOLS", "false").lower() == "true":
             tools.extend(hyperbolic_toolkit.get_tools())
 
         # Twitter Core Tools
@@ -874,22 +885,23 @@ async def run_with_progress(func, *args, **kwargs):
     finally:
         progress.stop()
 
-async def run_chat_mode(agent_executor, config):
+async def run_chat_mode(agent_executor, config, runnable_config):
     """Run the agent interactively based on user input."""
     print_system("Starting chat mode... Type 'exit' to end.")
     print_system("Commands:")
     print_system("  exit     - Exit the chat")
     print_system("  status   - Check if agent is responsive")
     
+    # Create the runnable config with required keys
     runnable_config = RunnableConfig(
-        recursion_limit=config["configurable"]["recursion_limit"],
+        recursion_limit=200,
         configurable={
             "thread_id": config["configurable"]["thread_id"],
             "checkpoint_ns": "chat_mode",
             "checkpoint_id": str(datetime.now().timestamp())
         }
     )
-
+    
     while True:
         try:
             prompt = f"{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}"
@@ -906,7 +918,7 @@ async def run_chat_mode(agent_executor, config):
             
             print_system(f"\nStarted at: {datetime.now().strftime('%H:%M:%S')}")
             
-            # Process chunks using the config with async handling
+            # Process chunks using the updated runnable_config with async handling
             async for chunk in run_with_progress(
                 agent_executor.astream,  # Use astream instead of stream
                 {"messages": [HumanMessage(content=user_input)]},
@@ -938,8 +950,9 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
     twitter_state.last_check_time = None
     twitter_state.save()
     
+    # Create the runnable config with required keys
     runnable_config = RunnableConfig(
-        recursion_limit=config["configurable"]["recursion_limit"],
+        recursion_limit=200,
         configurable={
             "thread_id": config["configurable"]["thread_id"],
             "checkpoint_ns": "autonomous_mode",
@@ -1178,7 +1191,7 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
                                         print_system(result)
                                         
                                         # Update state after successful reply
-                                        twitter_state.last_mention_id = tweet_id
+                                        twitter_state.last_mentigiton_id = tweet_id
                                         twitter_state.last_check_time = datetime.now()
                                         twitter_state.save()
                                 
@@ -1211,11 +1224,12 @@ async def main():
         mode = choose_mode()
         
         if mode == "chat":
-            await run_chat_mode(agent_executor=agent_executor, config=config)
+            await run_chat_mode(agent_executor=agent_executor, config=config, runnable_config=runnable_config)
         elif mode == "auto":
             await run_autonomous_mode(
                 agent_executor=agent_executor,
                 config=config,
+                runnable_config=runnable_config,
                 twitter_api_wrapper=twitter_api_wrapper,
                 knowledge_base=knowledge_base,
                 podcast_knowledge_base=podcast_knowledge_base
