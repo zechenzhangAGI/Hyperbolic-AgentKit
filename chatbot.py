@@ -57,6 +57,7 @@ from utils import (
 from twitter_state import TwitterState, MENTION_CHECK_INTERVAL, MAX_MENTIONS_PER_INTERVAL
 from twitter_knowledge_base import TweetKnowledgeBase, Tweet, update_knowledge_base
 from langchain_core.runnables import RunnableConfig
+from podcast_agent.podcast_knowledge_base import PodcastKnowledgeBase
 
 # Constants
 ALLOW_DANGEROUS_REQUEST = True  # Set to False in production for security
@@ -208,12 +209,6 @@ def process_character_config(character: Dict[str, Any]) -> str:
     
     # Compile personality prompt
     personality = f"""
-        Here are examples of your previous posts:
-
-        <post_examples>
-        {post_examples}
-        </post_examples>
-
         You are an AI character designed to interact on social media, particularly Twitter, in the blockchain and cryptocurrency space. Your personality, knowledge, and capabilities are defined by the following information:
 
         <character_bio>
@@ -386,7 +381,7 @@ async def initialize_agent():
         print_system("Processing character configuration...")
         personality = process_character_config(character)
 
-        # Create config first before using it
+        # Create config first before using 
         config = {
             "configurable": {
                 "thread_id": f"{character['name']} Agent",
@@ -411,53 +406,78 @@ async def initialize_agent():
         
         
         
-        print_system("Initializing knowledge base...")
-        try:
-            knowledge_base = TweetKnowledgeBase()
-            stats = knowledge_base.get_collection_stats()
-            print_system(f"Initial knowledge base stats: {stats}")
-            print_system("Knowledge base initialized successfully")
-        except Exception as e:
-            print_error(f"Error initializing knowledge base: {e}")
-            raise
+        print_system("Initializing knowledge bases...")
+        knowledge_base = None
+        podcast_knowledge_base = None
+        tools = []
 
-        # Ask user about knowledge base update
-        if config['character'].get('kol_list'):
-            # First ask if they want to clear the existing knowledge base
+        # Twitter Knowledge Base initialization
+        if os.getenv("USE_KNOWLEDGE_BASE", "true").lower() == "true":
             while True:
-                clear_choice = input("\nDo you want to clear the existing knowledge base? (y/n): ").lower().strip()
-                if clear_choice in ['y', 'n']:
+                init_twitter_kb = input("\nDo you want to initialize the Twitter knowledge base? (y/n): ").lower().strip()
+                if init_twitter_kb in ['y', 'n']:
                     break
                 print("Invalid choice. Please enter 'y' or 'n'.")
 
-            if clear_choice == 'y':
-                knowledge_base.clear_collection()
-                stats = knowledge_base.get_collection_stats()
-                print_system(f"Knowledge base stats after clearing: {stats}")
-
-            # Then ask about updating
-            while True:
-                update_choice = input("\nDo you want to update the knowledge base with KOL tweets? (y/n): ").lower().strip()
-                if update_choice in ['y', 'n']:
-                    break
-                print("Invalid choice. Please enter 'y' or 'n'.")
-
-            if update_choice == 'y':
-                print_system("Updating knowledge base with KOL tweets...")
+            if init_twitter_kb == 'y':
                 try:
-                    await update_knowledge_base(twitter_api_wrapper, knowledge_base, config['character']['kol_list'])
+                    knowledge_base = TweetKnowledgeBase()
                     stats = knowledge_base.get_collection_stats()
-                    print_system(f"Updated knowledge base stats: {stats}")
-                    print_system("Knowledge base updated successfully")
+                    print_system(f"Initial Twitter knowledge base stats: {stats}")
+                    
+                    while True:
+                        clear_choice = input("\nDo you want to clear the existing Twitter knowledge base? (y/n): ").lower().strip()
+                        if clear_choice in ['y', 'n']:
+                            break
+                        print("Invalid choice. Please enter 'y' or 'n'.")
+
+                    if clear_choice == 'y':
+                        knowledge_base.clear_collection()
+                        print_system("Knowledge base cleared")
+
+                    while True:
+                        update_choice = input("\nDo you want to update the Twitter knowledge base with KOL tweets? (y/n): ").lower().strip()
+                        if update_choice in ['y', 'n']:
+                            break
+                        print("Invalid choice. Please enter 'y' or 'n'.")
+
+                    if update_choice == 'y':
+                        print_system("Updating knowledge base with KOL tweets...")
+                        await update_knowledge_base(twitter_api_wrapper, knowledge_base, config['character']['kol_list'])
+                        stats = knowledge_base.get_collection_stats()
+                        print_system(f"Updated knowledge base stats: {stats}")
                 except Exception as e:
-                    print_error(f"Error updating knowledge base: {e}")
-                    print_error(f"Error type: {type(e).__name__}")
-                    if hasattr(e, '__traceback__'):
-                        import traceback
-                        traceback.print_exception(type(e), e, e.__traceback__)
-                    raise
-            else:
-                print_system("Skipping knowledge base update...")
+                    print_error(f"Error initializing Twitter knowledge base: {e}")
+
+        # Podcast Knowledge Base initialization
+        if os.getenv("USE_PODCAST_KNOWLEDGE_BASE", "true").lower() == "true":
+            while True:
+                init_podcast_kb = input("\nDo you want to initialize the Podcast knowledge base? (y/n): ").lower().strip()
+                if init_podcast_kb in ['y', 'n']:
+                    break
+                print("Invalid choice. Please enter 'y' or 'n'.")
+
+            if init_podcast_kb == 'y':
+                try:
+                    podcast_knowledge_base = PodcastKnowledgeBase()
+                    print_system("Podcast knowledge base initialized successfully")
+                    
+                    while True:
+                        clear_choice = input("\nDo you want to clear the existing podcast knowledge base? (y/n): ").lower().strip()
+                        if clear_choice in ['y', 'n']:
+                            break
+                        print("Invalid choice. Please enter 'y' or 'n'.")
+
+                    if clear_choice == 'y':
+                        podcast_knowledge_base.clear_collection()
+                        print_system("Podcast knowledge base cleared")
+
+                    print_system("Processing podcast transcripts...")
+                    podcast_knowledge_base.process_all_json_files()
+                    stats = podcast_knowledge_base.get_collection_stats()
+                    print_system(f"Podcast knowledge base stats: {stats}")
+                except Exception as e:
+                    print_error(f"Error initializing Podcast knowledge base: {e}")
 
         # Rest of initialization (tools, etc.)
         # Reference to original code:
@@ -504,26 +524,44 @@ async def initialize_agent():
             requests_wrapper=TextRequestsWrapper(headers={}),
             allow_dangerous_requests=ALLOW_DANGEROUS_REQUEST,
         )   
-        # Create knowledge base query tool
-        query_kb_tool = Tool(
-            name="query_knowledge_base",
-            func=lambda query: knowledge_base.format_query_results(
-                knowledge_base.query_knowledge_base(query)
-            ),
-            description="Query the knowledge base for relevant tweets about crypto/AI/tech trends. Input should be a search query string."
-        )
+        # # Create knowledge base query tool
+        # query_kb_tool = Tool(
+        #     name="query_knowledge_base",
+        #     func=lambda query: knowledge_base.format_query_results(
+        #         knowledge_base.query_knowledge_base(query)
+        #     ),
+        #     description="Query the knowledge base for relevant tweets about crypto/AI/tech trends. Input should be a search query string."
+        # )
+
+        #         # Create podcast knowledge base query tool
+        # query_podcast_kb_tool = Tool(
+        #     name="query_podcast_knowledge_base",
+        #     func=lambda query: podcast_knowledge_base.format_query_results(
+        #         podcast_knowledge_base.query_knowledge_base(query)
+        #     ),
+        #     description="Query the podcast knowledge base for relevant podcast segments about crypto/Web3/gaming. Input should be a search query string."
+        # )
         
         memory = MemorySaver()
 
         # Initialize with minimum required tools
         tools = []
 
-        # Knowledge Base Tool
-        if os.getenv("USE_KNOWLEDGE_BASE", "true").lower() == "true":
+        # Knowledge Base Tools
+        if os.getenv("USE_TWITTER_KNOWLEDGE_BASE", "true").lower() == "true" and knowledge_base is not None:
             tools.append(Tool(
                 name="query_knowledge_base",
                 description="Query the knowledge base for relevant tweets about crypto/AI/tech trends.",
                 func=lambda query: knowledge_base.query_knowledge_base(query)
+            ))
+
+        if os.getenv("USE_PODCAST_KNOWLEDGE_BASE", "true").lower() == "true" and podcast_knowledge_base is not None:
+            tools.append(Tool(
+                name="query_podcast_knowledge_base",
+                func=lambda query: podcast_knowledge_base.format_query_results(
+                    podcast_knowledge_base.query_knowledge_base(query)
+                ),
+                description="Query the podcast knowledge base for relevant podcast segments about crypto/Web3/gaming. Input should be a search query string."
             ))
 
         # CDP Toolkit Tools
@@ -572,6 +610,8 @@ async def initialize_agent():
         if os.getenv("USE_REQUEST_TOOLS", "false").lower() == "true":
             tools.extend(toolkit.get_tools())
 
+
+
         # Create the runnable config with increased recursion limit
         runnable_config = RunnableConfig(recursion_limit=200)
 
@@ -583,10 +623,10 @@ async def initialize_agent():
             tools=tools,
             checkpointer=memory,
             state_modifier=personality,
-        ), config, runnable_config, twitter_api_wrapper, knowledge_base
+        ), config, runnable_config, twitter_api_wrapper, knowledge_base, podcast_knowledge_base
 
     except Exception as e:
-        print_error(f"Error initializing agent: {e}")
+        print_error(f"Failed to initialize agent: {e}")
         raise
 
 
@@ -682,7 +722,7 @@ class AgentExecutionError(Exception):
     """Custom exception for agent execution errors."""
     pass
 
-async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_api_wrapper, knowledge_base):
+async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_api_wrapper, knowledge_base, podcast_knowledge_base):
     """Run the agent autonomously with specified intervals."""
     print_system(f"Starting autonomous mode as {config['character']['name']}...")
     twitter_state.load()
@@ -715,19 +755,19 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
             twitter_state.last_check_time = datetime.now()
             twitter_state.save()
 
-            # Update knowledge base at the start of each cycle
-            print_system("Updating knowledge base with recent KOL tweets...")
-            try:
-                await update_knowledge_base(
-                    twitter_api_wrapper,
-                    knowledge_base,
-                    config['character']['kol_list']
-                )
-                print_system("Knowledge base update completed")
-            except Exception as e:
-                print_error(f"Error updating knowledge base: {e}")
+            # # Update knowledge base at the start of each cycle
+            # print_system("Updating knowledge base with recent KOL tweets...")
+            # try:
+            #     await update_knowledge_base(
+            #         twitter_api_wrapper,
+            #         knowledge_base,
+            #         config['character']['kol_list']
+            #     )
+            #     print_system("Knowledge base update completed")
+            # except Exception as e:
+            #     print_error(f"Error updating knowledge base: {e}")
 
-            print_system("Checking for new mentions, interacting with KOLs, and creating new post...")
+            # print_system("Checking for new mentions, interacting with KOLs, and creating new post...")
             
             # Select unique KOLs for interaction using random.sample
             NUM_KOLS = 1  # Define constant for number of KOLs to interact with
@@ -790,21 +830,15 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
             10. Use the provided account ID and KOL user IDs. Do not use the get_user_id tool to retrieve them.
            
             Process:
-            1. Query the knowledge base once using query_knowledge_base() for trending discussions:
+            1. Query the knowledge base once using query_podcast_knowledge_base() for trending discussions:
       
             # Example queries to understand current discussions:
-            "What are the most discussed topics in the last 24 hours?"
-            "What projects or cryptocurrencies are people talking about most?"
-            "What are the key debates or discussions happening in crypto/AI right now?"
-            "Summarize the main sentiment and trends from recent discussions"
+            "What was discussed in the last podcast?"
+            "What are some key takeaways from the last podcast?"
+            "Tell me about the guest on the last podcast"
+            "What are the most important topics discussed in the last podcast?"
+            "Tell me about the podcast hosts"
 
-            The query should focus on:
-            - Hot topics and trending conversations
-            - Recurring themes or patterns in discussions
-            - Notable opinions or insights from KOLs
-            - Emerging trends or shifts in sentiment
-            - Controversial or highly-engaged topics
-            - Breaking news or developments being discussed
             2. Analyze the returned tweets for emerging trends and discussions.
             3. Check for new mentions using get_mentions() and process them:
             - For each mention that is newer than the last_mention_id, check if you've replied using has_replied_to().
@@ -826,7 +860,7 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
 
             Before executing each step, wrap your thought process in <thought_process> tags. This will help ensure thoughtful and relevant interactions. In your analysis:
 
-            1. For the knowledge base query:
+            1. For the podcast knowledge base query:
             - List key topics and trends identified
             - Explain how these insights will inform your tweets and interactions
             - Rank the topics by relevance and potential for engagement
@@ -925,7 +959,7 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
 async def main():
     """Start the chatbot agent."""
     try:
-        agent_executor, config, runnable_config, twitter_api_wrapper, knowledge_base = await initialize_agent()
+        agent_executor, config, runnable_config, twitter_api_wrapper, knowledge_base, podcast_knowledge_base = await initialize_agent()
         mode = choose_mode()
         
         if mode == "chat":
@@ -936,7 +970,8 @@ async def main():
                 config=config,
                 runnable_config=runnable_config,
                 twitter_api_wrapper=twitter_api_wrapper,
-                knowledge_base=knowledge_base
+                knowledge_base=knowledge_base,
+                podcast_knowledge_base=podcast_knowledge_base
             )
     except Exception as e:
         print_error(f"Failed to initialize agent: {e}")
