@@ -1,0 +1,206 @@
+[
+  {
+    "speaker": "Wei Dai",
+    "content": "Fat wallet thesis"
+  },
+  {
+    "speaker": "Rob",
+    "content": "Tell us"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "I mean this might be a controversial point, but I think if you do the math, the base layer will have to do this."
+  },
+  {
+    "speaker": "Rob",
+    "content": "The most important advancements in infrastructure over the last cycle, like since 2020."
+  },
+  {
+    "speaker": "Andy",
+    "content": "How should we think about the progression of interoperability amongst all of these clusters and like bringing this all together as a whole?"
+  },
+  {
+    "speaker": "Rob",
+    "content": "Nice. So you, team offsite in a Phuket before this and uh, yeah. Yeah, the 1KX founder, uh founders event, right?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah, yeah, yeah. I'm sure you saw the you know, the process of winning tweets, the way we put out."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Yeah, yeah, yeah."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah."
+  },
+  {
+    "speaker": "Rob",
+    "content": "In the process of winning."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah, yeah, it's a, you know, it's a, you know, it's a it's a joke but."
+  },
+  {
+    "speaker": "Rob",
+    "content": "No, no, it's all good."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Guys are great, yeah."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Uh we like the 1KX guys, Peter. Peter's a good friend of ours. Um so yeah yeah, we're glad to have you on Wei. I mean it's your first time here. Um you have a you have a PHD from UC Berkeley."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "San Diego."
+  },
+  {
+    "speaker": "Rob",
+    "content": "San Diego. Yeah."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Rip RIP to my research. Um and what did you get your PHD in?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Um, so computer science. That's a you know, the broad field, but my specialization was cryptography."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Oh, epic. What how'd you choose that?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah. So you know, I think in this space my guess would be crypto would have a lot of application blockchains, you know, but I actually knew about Bitcoin since the early days. I was in high school, you know, like right early like 2010s. And yeah like, you know, cryptography was not really something that you know, I saw as okay, I'm going to do this so I can do blockchain right? It was like okay, I was actually doing like theoretical computer science and cryptography was actually really interesting from technical perspective, right? Back then I was a nerd. You know, I was like, okay, I want to push the field forwards. I want to like just learn about cryptography, you know, do the science. Um it was like mid-2010s. And that's how I got in. You know, it was yeah, like I I was just doing the science you know, doing the research. That's what I was interested in."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Nice. Has, how much longer do you think SHA-256 and RSA, how much longer do you think those are going to last?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah. It's going to be a long conversation. Um but yeah, so I think SHA-2 is probably not going to get broken uh anytime soon, right? Even with quantum computers. Quantum computers doesn't really have uh a speed up over breaking hash functions. Uh um and I mean, yes, but you know, like we could uh we could we could actually mitigate that effect. Uh you know, Grover's search does have like a square root speed up. Okay and not to get into technical details, but you know, I don't think the world is going to it's it's going to it's going to end if quantum computers will be here and you know, all these things are actually pretty battle tested. RSA actually, uh it's actually harder to break RSA than electric cryptography that's used in Ethereum for example."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Right. Okay so maybe could you describe like the current cryptographic architecture of Ethereum with its electric curves? And then like how does that differ from something like, you know, the, like the RSA protocols that like Visa and when someone you know, buys something online they put in their credit card and that's the cryptography that you know, kind of like the like, the off chain online world uses? Like, what is the difference between that and the cryptography on Ethereum?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah, so it's actually very very similar. Um and you know, Ethereum uses basically one primitive. It's called uh it's signature schemes, right? ECDSA. And uh and currently you know, the from 2.0 consensus uses BLS signatures over this curve called BLS uh 12381 I think. Uh and these are actually very well understood, right? But when you talk about like rollups, uh you know, ZK, that's a very, very like different branch of cryptography. Right? These days it's called programmable cryptography, right? And that's, so there's a difference between you know, cryptography for for Web2 like encryption signatures, and Ethereum also uses that, right? Signature schemes are very well understood. And then this new school of like what I call cryptography for Web3 or programmable cryptography, that is, you know, way more fancy, it's slower, the computational overhead, there's like a lot of progress right? Um we can get into details, right? But actually you know, if you think about um what cryptography does, it's it's really a tool, right? And if you program uh you know, pieces of smart contracts on a rollup, you don't actually get to see the ZK part, right? And and I think like a lot of times um I think people actually over index on the cryptography but actually it's really about the functionality, right? And cryptography is really just a defensive measure uh to make sure you have the right properties but you know, to the programmer most of the time, uh you don't actually want to worry about the cryptography, right? So really behind the scenes."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Right. For the end user."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah, yeah.  We can go into cryptography or you could talk about applications."
+  },
+  {
+    "speaker": "Andy",
+    "content": "Um, now I'm going to take this right into this tweet about this technical domains investing in applications. Yeah. Okay. Um okay, so that I think this is a great segway, um from while I love to go deep into cryptography we might have to save this for a visual, uh podcast where we do a presentation and like I'm much more of a visual learner and I think our audience is as well. But what is funny is that you were trolling Kyle Samani on Twitter about his tweet about uh being a a a founder or a venture capitalist that's not technical. And you went in to do a quote suite that was like some takeaways from a a a venture capitalist that or or a researcher that is technical. And so like when you're looking at the scope of these projects that that you guys are investing in at 1KX, um like how much uh of of your technical expertise do you use to look forward into valuations and how does like your technical background uh influence your decision making from the fund perspective and like how does it change the way that that you see crypto projects?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Definitely. I'll answer that question in two ways, right? So I think um one is really about the evaluation of of the actual technical detail of projects and I think this uh really shows up in you know, looking at ZK and FV projects. And um you know, it's just easier to actually understand, is there something that's uh really happening here or is it something that's vaporware, right? And um and for that like I kind of I have a pretty quick quick high level take. Um but actually that's not the important part. I think really what makes a a great investor is really about active investing and and being uh contrarian and being counter cyclical and and trying to find the next new thing. And I think that's the part you know, if you actually read my thread, uh I think in infrastructure early stage and in crypto, right? It's, we are investing in emerging technology that will be the next generation of platforms. And when you think about what comes next, right? And tech will improve, right? There will be next, if you look at how technology has really developed over the last century, really there needs to be technical advancements to really enable the next um generation of platforms that will be fundamentally different than what we have today. And I believe that they'll they'll continue to be true, which means that to really capture venture case you want to invest in things that actually are not new, right? And there's two ways this could go. One is um you know, you you could just find them. Uh someone will come with an idea, you know, maybe this was Ethereum you know, when when when it was only Bitcoin around and you invest in that. And second is, I think more active work and that's the part I like to do which is, hey, I'm a researcher. Let me think about what would be the next step and let me talk about it, right? Let me walk through with the founders and actually try to work with them together as a team to to to figure out what is the next, the next thing. And I think that's the part that's uh really differentiate a a technical investor rather than, you know, an investor that um it maybe more more narrative driven or okay you know, like when things are more de-risked. You know, I just love to think about what comes next and and do that together with founders."
+  },
+  {
+    "speaker": "Andy",
+    "content": "Yep. Yeah, it's like, so it's, it's a you can identify something that has is net new but by kind of being there at the right time and like understanding where where the space could go and that could exist already. Or you could have your own ideas, like your own thoughts from this research perspective and then go out and I mean, either persuade or work with with founders that, that are you know, top of the line and like work with them to like, uh build this idea together that, that kind of stems internally because of your technical background."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Exactly."
+  },
+  {
+    "speaker": "Andy",
+    "content": "Yeah."
+  },
+  {
+    "speaker": "Andy",
+    "content": "Very cool. Okay and so uh, you mentioned an important thing which I think is like the infrastructure for blockchain and for the space has made this kind of jump to being, like it's, it's ready. I mean like, my takeaway from, from your first point was like the infra side has been invested in. It's been built. It's been, you know, it's ready to kind of field the next, what's next. These net new applications and you recently also tweeted that blockchains are application platforms. Um and I also think that 1KX is pioneering this kind of shift to really wanting to invest in applications and has already done so. So, maybe you could walk us through like your mental model for this next era of blockchains being application platforms and like, why you believe that and how that's driving some of your, uh your investing thesis."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah. So at 1KX we have a pretty broad, uh set of investment categories right? So I focus focus on infrastructure. And you know, so I I don't really look at applications myself and that's actually you know, Peter's Peter's uh expertise area and so we you know, we actually discuss a lot in, um you know, it's the next generation of of, uh platforms ready. And you know if you look at applications today you might deploy smart contracts, you know, you feel Solana you might want to do app chain, right? And um and a lot of people are doing that, right? More more um applications are are becoming becoming chains uh in those different frameworks. And I think really it will evolve, um you know, some people talk about this like infrastructure cycle application cycle and I think it's really uh both are advancing, right? There's infrastructure that we built, that enable the next set of applications. Because you know, maybe applications today will, uh run into problems. So for example, if you look at application in the last cycle, when they are built as smart contracts, we run into fee spikes, right? And and that's why infrastructure evolved to say okay, let's do horizontal scalability with roll ups, and last fee markets, right? Uh but then we're running to interoperability problems, right? So I think there's going to be a back and forth. Where we'll have the current generation of infrastructure and applications will saturate that, uh you know, form factor and and figure out, okay, actually we'll have problems. And then infrastructure will evolve then to solve that, those set of problems and then you know, you have this cycle back and forth. And um but but at the same time, right? It's basically expanding. So as we solve these problems. "
+  },
+  {
+    "speaker": "Andy",
+    "content": "Where are we now do you think? Are we in the seesaw?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "It, it's the seesaw is like happening like at the same time. Always, right? Always, always. I don't think it's going to be like a, you know, app versus infra cycle."
+  },
+  {
+    "speaker": "Rob",
+    "content": "What do you, maybe another way to ask that question is like, what do you think are the most transformative infrastructure unlocks net new infrastructure unlocks that have occurred in recent years? Like, since we kind of got our last wave of new applications."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yeah. We obviously it's rollups. Obviously it is ways to launch blockchains without, uh, trust minimized um security in a way that doesn't ac- actually you know, congest the base layer right? Horizontal scalability, I think we are moving in that direction. And you know, there's like, um asterisk, right? So for example if you share the same DA layer, you are actually not too horizontally scalable when that DA layer has a bottleneck. Um but you know, at the settlement layer, there's settlement, we don't actually run into a bottleneck. So I think if you look at this past cycle, obviously it is these horizontally scalable platforms, right? And then which then evolves into clusters. And the key, the key question now is you know, for these rollup clusters, how do these roll up applications actually contribute to, um you know, the overall ecosystem, right? Do we actually have network effects, right? I think that's still in the process of being figured out. I think different clusters are proposing different mechanisms to like, build this network effects right? But I don't think we're at the end game yet, where you know, like really, uh, you know if Ethereum value accrual is is is a real problem right? Yeah."
+  },
+  {
+    "speaker": "Rob",
+    "content": "What do you think the consequences of of, like making it very easy to launch a new app chain? What do you think of the consequences on ETH value accrual?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Um, it depends on how Ethereum or other rollup clusters fix their tokenomics or you know, what type of so I think if you think about, um why Ethereum and Solana like this L1 model really works is because every single application uses the same gas token. Mhm. And so, if you have an application deployed there, your users will have to hold the token that you should share the same wallet infrastructure. Meaning that if you are user for one application you'll have assets, not that can go to other applications. If you just think from this first principle applied this to rollups, right? Actually there's friction there, right? Okay, sure you might be using the same wallets, but you have to bridge, you know, right? And um and you don't actually have to hold the same gas token. So with this actually have this effect on the cluster token? I think I think the answer's very very, uh unclear. Very open question at the moment, right? So, can roll up clusters actually design like correct tokenomics to actually replicate the success of, of these L1s? Yeah."
+  },
+  {
+    "speaker": "Rob",
+    "content": "So when you're thinking about, and and let's use kind of rollup, maybe like, uh a portfolio company of yours like as a proxy for these roll up clusters or or even for Ethereum."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "I think, maybe. Okay, so yeah. So like how would you recommend ZK-Sync build network effects?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Yep. So, ZK-Sync is been elastic chain right? It's uh technically on a technical level it's where ZK-Sync error was one rollup. Now there's there's the settlement contract right? And every single roll up that's in elastic chain in the elastic chain cluster will share the same, uh liquidity settlement contract. Mhm. And they are building interoperability solutions where you can read and write to other chains asynchronously. And with pre-confirmation, this will be, you know, about 1 to 2 second latency. And I think they are shipping this uh so this actually live on mainnet and they're shipping different components of this you know, uh into next year. Um and you know, the network effect comes from liquidity. Uh it's from liquidity and comes from interop, right? It's not exactly the same interop as Ethereum dapps. So in the sense that it's not within the same block, but that's actually the key reason why you can add more more elastic chains, um without, without uh without a bottleneck. Yeah."
+  },
+  {
+    "speaker": "Rob",
+    "content": "Yeah, one point on that. We've spoken about this idea of monetary velocity. And if you can get the velocity of money flowing through your ecosystem at a higher rate, then you can get rehypothecation at like the good part of rehypothecation flowing you can get liquidity into new applications more easily, more quickly. And then you can reuse that, you can kind of turn it over faster and faster. And so, to your point, interop, uh connecting these chains together, uh all of this adds to the monetary velocity within an ecosystem."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Exactly. Yeah. And I think if you are building a rollup and you are deciding where do I do I build this? Do I build this directly on top of Ethereum? Do I build this on elastic chain? Um you look for value added by that ecosystem to you, right? Do I have users already on there? Are they already using the assets that my want to support on my on my roll up? Or what are really assets that these, these these users want to purchase, right? And we're hold? And I think that's how, how rollup clusters think about answering that question, for which set of application rollup builders uh is key, right? Like is a network effect? Um you know, how do I increase monetary velocity within my ecosystem? How do I, and more importantly how do I accrue part of that value, right? And I think the problem for Ethereum is that, uh there's so much value that's going into, into these L2s and actually so much value that's internal to this L2s. A case in point, if you look at base, um the amount of value that's minted on base can not, uh natively, it's quickly growing. It's growing way faster than economically bridged value. And the reason is because, right? Base has a vibrant ecosystem. People want to launch meme coins on there and that asset is not on Ethereum. It's actually on base. And and it will not actually move easily into other rollups even in the super chain."
+  },
+  {
+    "speaker": "Andy",
+    "content": "But, wouldn't it also just move to L1 at some point as well?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Uh currently, it, it currently can actually do that. So, could, could you,"
+  },
+  {
+    "speaker": "Andy",
+    "content": "Well, you could sell it to ETH you know, you could sell your meme coin and then go to bridge it to L1."
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "Could sell to ETH."
+  },
+  {
+    "speaker": "Andy",
+    "content": "So isn't, isn't any sort of value creation on L2s also, then could potentially be valuable for ETH?"
+  },
+  {
+    "speaker": "Wei Dai",
+    "content": "It, it, it currently it can actually do that. So, currently, it can actually do that."
+  }
+]

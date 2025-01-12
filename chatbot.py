@@ -209,6 +209,12 @@ def process_character_config(character: Dict[str, Any]) -> str:
     
     # Compile personality prompt
     personality = f"""
+        Here are examples of your previous posts:
+
+        <post_examples>
+        {post_examples}
+        </post_examples>
+        
         You are an AI character designed to interact on social media, particularly Twitter, in the blockchain and cryptocurrency space. Your personality, knowledge, and capabilities are defined by the following information:
 
         <character_bio>
