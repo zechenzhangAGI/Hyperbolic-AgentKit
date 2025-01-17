@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import json
 
 # Constants
-MENTION_CHECK_INTERVAL = 15 * 60  
+MENTION_CHECK_INTERVAL = 2 * 60  
 MAX_MENTIONS_PER_INTERVAL = 50  # Adjust based on your API tier limits
 
 class TwitterState:

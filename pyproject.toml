@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "A sample app that uses CDP AgentKit"
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
+package-mode = false
+
 
 
 [tool.poetry.dependencies]
@@ -27,6 +29,13 @@ scikit-learn = "^1.6.0"
 nomic = {extras = ["local"], version = "^3.3.4"}
 tiktoken = "^0.8.0"
 langchain-anthropic = "^0.3.0"
+chromadb = "^0.6.2"
+torch = "2.2"
+sentence-transformers = "^3.3.1"
+google-cloud-aiplatform = "^1.38.0"
+vertexai = "^0.0.1"
+numpy = "<2.0.0"
+
 
 [build-system]
 requires = ["poetry-core"]

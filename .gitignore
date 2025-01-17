@@ -64,4 +64,6 @@ eaccservicekey.json
 
 twitter_state_rolypoly.db
 
-audiofiles/
+# audiofiles/
+
+# jsonoutputs/
