@@ -768,10 +768,6 @@ async def initialize_agent():
                 ),
                 description="Query the podcast knowledge base for relevant podcast segments about crypto/Web3/gaming. Input should be a search query string."
             ))
-<<<<<<< HEAD
-            
-=======
->>>>>>> b5b88e2 (initial work)
 
         if os.getenv("USE_PODCAST_KNOWLEDGE_BASE", "true").lower() == "true" and podcast_knowledge_base is not None:
             tools.append(Tool(
