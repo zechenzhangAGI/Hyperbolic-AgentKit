@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "cdp-agentkit-sample"
+name = "hyperbolic-agentkit-sample"
 version = "0.1.0"
-description = "A sample app that uses CDP AgentKit"
+description = "A sample app that uses Hyperbolic AgentKit"
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
 package-mode = false
