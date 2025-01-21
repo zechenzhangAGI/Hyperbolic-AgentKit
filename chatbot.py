@@ -881,6 +881,15 @@ async def run_chat_mode(agent_executor, config):
     print_system("  exit     - Exit the chat")
     print_system("  status   - Check if agent is responsive")
     
+    runnable_config = RunnableConfig(
+        recursion_limit=config["configurable"]["recursion_limit"],
+        configurable={
+            "thread_id": config["configurable"]["thread_id"],
+            "checkpoint_ns": "chat_mode",
+            "checkpoint_id": str(datetime.now().timestamp())
+        }
+    )
+
     while True:
         try:
             prompt = f"{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}"
@@ -901,7 +910,7 @@ async def run_chat_mode(agent_executor, config):
             async for chunk in run_with_progress(
                 agent_executor.astream,  # Use astream instead of stream
                 {"messages": [HumanMessage(content=user_input)]},
-                config
+                runnable_config
             ):
                 if "agent" in chunk:
                     response = chunk["agent"]["messages"][0].content
@@ -928,6 +937,15 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
     # Reset last_check_time on startup to ensure immediate first run
     twitter_state.last_check_time = None
     twitter_state.save()
+    
+    runnable_config = RunnableConfig(
+        recursion_limit=config["configurable"]["recursion_limit"],
+        configurable={
+            "thread_id": config["configurable"]["thread_id"],
+            "checkpoint_ns": "autonomous_mode",
+            "checkpoint_id": str(datetime.now().timestamp())
+        }
+    )
     
     while True:
         try:
@@ -1141,7 +1159,7 @@ async def run_autonomous_mode(agent_executor, config, runnable_config, twitter_a
             # Process chunks as they arrive using async for
             async for chunk in agent_executor.astream(
                 {"messages": [HumanMessage(content=thought)]},
-                config
+                runnable_config
             ):
                 print_system(chunk)
                 if "agent" in chunk:
