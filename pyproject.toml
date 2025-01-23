@@ -37,6 +37,9 @@ vertexai = "^0.0.1"
 numpy = "<2.0.0"
 
 
+[tool.poetry.group.dev.dependencies]
+pytest-playwright = "^0.6.2"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
