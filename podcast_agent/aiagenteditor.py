@@ -14,8 +14,10 @@ from vertexai.generative_models import (
 )
 from concurrent.futures import ThreadPoolExecutor
 
+print('Starting AI Agent Editor')
+
 # Configuration setup
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/Users/amr/Hyperbolic-AgentKit/eaccservicekey.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/Users/connorchevli/Projects/hyperbolic/Hyperbolic-AgentKit/eaccservicekey.json"
 PROJECT_ID = "evolution-acceleration"
 LOCATION = "us-central1"
 
@@ -515,7 +517,9 @@ if __name__ == "__main__":
     
     # This will be the array of video files to process
     # Example: input_files = ["/User/Videos/HPC.mp4", "/User/Videos/HPC2.mp4", "/User/Videos/HPC3.mp4"]
-    input_files = []
+    input_files = [
+        "/Users/connorchevli/Projects/hyperbolic/Hyperbolic-AgentKit/videofiles/2025-02-25 at 17.42.56 - Coffee Sawfish.mp4"
+    ]
     
     for video_path in input_files:
         try:
