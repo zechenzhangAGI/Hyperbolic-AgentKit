@@ -35,9 +35,11 @@ COPY . .
 
 
 # Set environment variables
-ENV PORT=8080
+ENV PORT=4000
 ENV HOST="0.0.0.0"
+ENV PYTHONPATH=/app/server/src
 
 # Run the application
-# Using shell form to properly expand environment variables
-CMD sh -c "PYTHONPATH=/app/server/src python server/src/server/app.py"
+# Using JSON array format for better signal handling
+CMD ["python", "server/src/server/app.py"]
+
