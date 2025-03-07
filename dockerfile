@@ -35,7 +35,7 @@ COPY . .
 
 
 # Set environment variables
-ENV PORT=4000
+ENV PORT=8080
 ENV HOST="0.0.0.0"
 ENV PYTHONPATH=/app/server/src
 

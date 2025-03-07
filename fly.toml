@@ -3,7 +3,7 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'hyperbolic-agentkit-late-feather-7146'
+app = 'hyperbolic-agentkit-voice'
 primary_region = 'iad'
 
 [build]
