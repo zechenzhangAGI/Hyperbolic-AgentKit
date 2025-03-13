@@ -119,15 +119,14 @@ async def health_check(request):
 routes = [
     Route("/", homepage),
     Route("/health", health_check),
-    WebSocketRoute("/ws", websocket_endpoint),
     WebSocketRoute(
-        "/rolypoly/ws",
+        "/ws/rolypoly",
         lambda scope, receive, send: websocket_endpoint(
             scope, receive, send, character_file="rolypoly"
         ),
     ),
     WebSocketRoute(
-        "/chainyoda/ws",
+        "/ws/chainyoda",
         lambda scope, receive, send: websocket_endpoint(
             scope, receive, send, character_file="chainyoda"
         ),
