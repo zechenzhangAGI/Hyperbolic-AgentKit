@@ -33,6 +33,14 @@ active_connections = 0
 MAX_CONNECTIONS_PER_INSTANCE = 10
 
 
+async def rolypoly_websocket_endpoint(websocket: WebSocket):
+    await websocket_endpoint(websocket, "characters/rolypoly.json")
+
+
+async def chainyoda_websocket_endpoint(websocket: WebSocket):
+    await websocket_endpoint(websocket, "characters/chainyoda.json")
+
+
 async def websocket_endpoint(websocket: WebSocket, character_file: str):
     global active_connections
 
@@ -58,7 +66,7 @@ async def websocket_endpoint(websocket: WebSocket, character_file: str):
 
         # Load character configuration
         print("Loading character configuration")
-        character = loadCharacters(os.getenv("CHARACTER_FILE", character_file))[0]
+        character = loadCharacters(character_file)[0]
         personality = process_character_config(character)
 
         # Combine base instructions with character config
@@ -119,17 +127,14 @@ async def health_check(request):
 routes = [
     Route("/", homepage),
     Route("/health", health_check),
+    WebSocketRoute("/ws", websocket_endpoint),
     WebSocketRoute(
         "/ws/rolypoly",
-        lambda scope, receive, send: websocket_endpoint(
-            scope, receive, send, character_file="rolypoly"
-        ),
+        rolypoly_websocket_endpoint,
     ),
     WebSocketRoute(
         "/ws/chainyoda",
-        lambda scope, receive, send: websocket_endpoint(
-            scope, receive, send, character_file="chainyoda"
-        ),
+        chainyoda_websocket_endpoint,
     ),
 ]
 
