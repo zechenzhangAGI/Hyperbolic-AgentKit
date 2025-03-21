@@ -57,6 +57,32 @@ The script will:
 9. Clean up downloaded videos and processed segments after processing
 10. Display processing statistics from the database
 
+### Parallel Processing
+
+For faster processing, you can enable parallel processing:
+
+```
+# Process segments of each video in parallel (default behavior)
+poetry run python youtube_scraper.py
+
+# Process multiple videos in parallel (default: 2 concurrent videos)
+poetry run python youtube_scraper.py --parallel
+
+# Process multiple videos in parallel with custom worker count
+poetry run python youtube_scraper.py --parallel --max-workers 3
+```
+
+By default, the script:
+- Processes videos one at a time (sequential)
+- Processes up to 3 segments in parallel for each video
+
+When parallel video processing is enabled:
+- Multiple videos are processed simultaneously
+- Each video still processes up to 3 segments in parallel
+- Total concurrent processes = (number of video workers) × (number of segment workers)
+
+**Note:** Be mindful of system resources and API rate limits when using parallel processing.
+
 ## Database Management
 
 The script includes a utility tool (`db_utilities.py`) for managing the SQLite database. You can use it to check processing status, view statistics, and manage records.

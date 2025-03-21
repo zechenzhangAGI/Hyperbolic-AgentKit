@@ -56,6 +56,21 @@ cd youtube_scraper
 ./run_youtube_scraper.sh
 ```
 
+### Parallel Processing
+
+For faster processing, you can enable parallel video processing:
+
+```bash
+# Process multiple videos in parallel (default: 2 workers)
+poetry run python main.py --parallel
+
+# Specify the maximum number of parallel video workers
+poetry run python main.py --parallel --max-workers 3
+```
+
+Note: Each video will also process up to 3 segments in parallel, so using more video workers
+will increase the overall system load. Adjust the number based on your system's capabilities.
+
 ### Database Utilities
 
 To manage the database:
@@ -83,4 +98,4 @@ Follow the instructions to create a `youtube_cookies.txt` file.
 
 ## See Also
 
-For more detailed documentation, see [README_youtube_scraper.md](README_youtube_scraper.md). 
+For more detailed documentation, see [README_youtube_scraper.md](README_youtube_scraper.md).

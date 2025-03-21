@@ -45,19 +45,19 @@ Here are some example cron job configurations:
 #### Run Daily at 2 AM
 
 ```
-0 2 * * * /Users/amr/Hyperbolic-AgentKit/run_youtube_scraper.sh
+0 2 * * * /Users/amr/Hyperbolic-AgentKit/youtube_scraper/run_youtube_scraper.sh
 ```
 
 #### Run Weekly on Sunday at 3 AM
 
 ```
-0 3 * * 0 /Users/amr/Hyperbolic-AgentKit/run_youtube_scraper.sh
+0 3 * * 0 /Users/amr/Hyperbolic-AgentKit/youtube_scraper/run_youtube_scraper.sh
 ```
 
 #### Run Twice a Week (Monday and Thursday at 4 AM)
 
 ```
-0 4 * * 1,4 /Users/amr/Hyperbolic-AgentKit/run_youtube_scraper.sh
+0 4 * * 1,4 /Users/amr/Hyperbolic-AgentKit/youtube_scraper/run_youtube_scraper.sh
 ```
 
 ### Notes on Cron Syntax
@@ -92,7 +92,7 @@ Create a file named `com.yourusername.youtube-scraper.plist` in the `~/Library/L
     <string>com.yourusername.youtube-scraper</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/amr/Hyperbolic-AgentKit/run_youtube_scraper.sh</string>
+        <string>/Users/amr/Hyperbolic-AgentKit/youtube_scraper/run_youtube_scraper.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -102,9 +102,9 @@ Create a file named `com.yourusername.youtube-scraper.plist` in the `~/Library/L
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/amr/Hyperbolic-AgentKit/logs/launchd_stdout.log</string>
+    <string>/Users/amr/Hyperbolic-AgentKit/youtube_scraper/logs/launchd_stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/amr/Hyperbolic-AgentKit/logs/launchd_stderr.log</string>
+    <string>/Users/amr/Hyperbolic-AgentKit/youtube_scraper/logs/launchd_stderr.log</string>
 </dict>
 </plist>
 ```

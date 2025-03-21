@@ -11,6 +11,8 @@ import importlib.util
 import shutil
 from pathlib import Path
 import video_database as vdb
+import concurrent.futures
+import argparse
 
 # Constants
 CHANNEL_URL = "https://www.youtube.com/@TheRollupCo/videos"
@@ -223,39 +225,37 @@ def split_video(video_path, video_id):
         print(f"Error splitting video: {str(e)}")
         return []
 
-def process_video_segments(segments, video_id):
-    """Process each video segment using geminivideo.py and clean up after successful processing."""
-    # Import the geminivideo module
-    spec = importlib.util.spec_from_file_location("geminivideo", "../podcast_agent/geminivideo.py")
-    geminivideo = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(geminivideo)
-    
-    successful_segments = []
-    
-    for segment in segments:
-        try:
-            print(f"Processing segment: {segment}")
-            
-            # Get the segment basename for the output filename
-            segment_basename = os.path.basename(segment)
-            filename_without_ext = os.path.splitext(segment_basename)[0]
-            
-            # Process the video segment and get the output path
-            output_path = geminivideo.process_video(segment)
-            
-            print(f"Successfully processed segment: {segment}")
-            print(f"Output saved to: {output_path}")
-            
-            # Mark as successfully processed in the database
-            vdb.mark_segment_processed(segment, output_path)
-            
-            # Mark as successfully processed for cleanup
-            successful_segments.append(segment)
-            
-            # Add a delay between processing segments
-            time.sleep(5)
-        except Exception as e:
-            print(f"Error processing segment {segment}: {str(e)}")
+# Define this function at module level so it can be pickled for ProcessPoolExecutor
+def process_single_segment(segment):
+    try:
+        print(f"Processing segment: {segment}")
+        
+        # Import the geminivideo module
+        spec = importlib.util.spec_from_file_location("geminivideo", "../podcast_agent/geminivideo.py")
+        geminivideo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(geminivideo)
+        
+        segment_basename = os.path.basename(segment)
+        output_path = geminivideo.process_video(segment)
+        
+        print(f"Successfully processed segment: {segment}")
+        print(f"Output saved to: {output_path}")
+        
+        # Mark as successfully processed in the database
+        vdb.mark_segment_processed(segment, output_path)
+        
+        # Return for cleanup
+        return segment
+    except Exception as e:
+        print(f"Error processing segment {segment}: {str(e)}")
+        return None
+
+def process_video_segments_parallel(segments, video_id):
+    """Process video segments in parallel using ProcessPoolExecutor."""
+    # Process segments in parallel
+    max_workers = 3  # Process 3 segments at once
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        successful_segments = list(filter(None, executor.map(process_single_segment, segments)))
     
     # Clean up successfully processed segments
     for segment in successful_segments:
@@ -292,7 +292,41 @@ def print_processing_stats():
     print(f"Pending segments: {stats['pending_segments']}")
     print("----------------------------\n")
 
-def process_pending_videos():
+def process_complete_video(video):
+    """Process a complete video from download to cleanup."""
+    try:
+        print(f"Processing video: {video['title']} ({video['id']})")
+        
+        # Download video
+        video_path = download_video(video)
+        if not video_path:
+            print(f"Skipping {video['id']} due to download failure")
+            return False
+            
+        # Split video into segments
+        segments = split_video(video_path, video['id'])
+        if not segments:
+            print(f"No segments created for {video['id']}")
+            return False
+            
+        # Process segments and clean up after successful processing
+        all_processed = process_video_segments_parallel(segments, video['id'])
+        
+        # Clean up downloaded file
+        clean_up(video_path)
+        
+        if all_processed:
+            print(f"Successfully processed all segments for video: {video['title']}")
+            return True
+        else:
+            print(f"Some segments failed to process for video: {video['title']}")
+            return False
+            
+    except Exception as e:
+        print(f"Error processing video {video['id']}: {str(e)}")
+        return False
+
+def process_pending_videos(parallel=False, max_parallel=2):
     """Process videos that were previously added to the database but not completed."""
     # Check for cookies file before downloading
     has_cookies = check_cookies_file()
@@ -305,37 +339,17 @@ def process_pending_videos():
     
     print(f"Found {len(pending_videos)} pending videos to process.")
     
-    for video in pending_videos:
-        try:
-            print(f"Processing pending video: {video['title']} ({video['id']})")
-            
-            # Download video
-            video_path = download_video(video)
-            if not video_path:
-                print(f"Skipping pending video {video['id']} due to download failure")
-                continue
-                
-            # Split video into segments
-            segments = split_video(video_path, video['id'])
-            if not segments:
-                print(f"No segments created for pending video {video['id']}")
-                continue
-                
-            # Process segments and clean up after successful processing
-            all_processed = process_video_segments(segments, video['id'])
-            
-            # Clean up downloaded file
-            clean_up(video_path)
-            
-            if all_processed:
-                print(f"Successfully processed all segments for pending video: {video['title']}")
-            else:
-                print(f"Some segments failed to process for pending video: {video['title']}")
-            
-        except Exception as e:
-            print(f"Error processing pending video {video['id']}: {str(e)}")
+    if parallel and len(pending_videos) > 1:
+        print(f"Processing videos in parallel with {max_parallel} workers...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel) as executor:
+            results = list(executor.map(process_complete_video, pending_videos))
+        print(f"Parallel processing completed. {sum(results)} videos successfully processed.")
+    else:
+        # Process videos sequentially (original code)
+        for video in pending_videos:
+            process_complete_video(video)
 
-def main():
+def main(parallel_videos=False, max_parallel_videos=2):
     print("Starting YouTube scraper and processor...")
     
     # Initialize database
@@ -348,40 +362,21 @@ def main():
     has_cookies = check_cookies_file()
     
     # Process any pending videos first
-    process_pending_videos()
+    process_pending_videos(parallel=parallel_videos, max_parallel=max_parallel_videos)
     
     # Get recent videos
     videos = get_recent_videos()
     print(f"Found {len(videos)} new videos to process")
     
-    # Process each video
-    for video in videos:
-        try:
-            # Download video
-            video_path = download_video(video)
-            if not video_path:
-                print(f"Skipping {video['id']} due to download failure")
-                continue
-                
-            # Split video into segments
-            segments = split_video(video_path, video['id'])
-            if not segments:
-                print(f"No segments created for {video['id']}")
-                continue
-                
-            # Process segments and clean up after successful processing
-            all_processed = process_video_segments(segments, video['id'])
-            
-            # Clean up downloaded file
-            clean_up(video_path)
-            
-            if all_processed:
-                print(f"Successfully processed all segments for video: {video['title']}")
-            else:
-                print(f"Some segments failed to process for video: {video['title']}")
-            
-        except Exception as e:
-            print(f"Error processing video {video['id']}: {str(e)}")
+    if parallel_videos and len(videos) > 1:
+        print(f"Processing videos in parallel with {max_parallel_videos} workers...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel_videos) as executor:
+            results = list(executor.map(process_complete_video, videos))
+        print(f"Parallel processing completed. {sum(results)} videos successfully processed.")
+    else:
+        # Process videos sequentially (original code)
+        for video in videos:
+            process_complete_video(video)
     
     # Print final statistics
     print_processing_stats()
@@ -389,4 +384,9 @@ def main():
     print("All videos have been processed.")
 
 if __name__ == "__main__":
-    main() 
+    parser = argparse.ArgumentParser(description='YouTube scraper and processor for The Rollup podcast.')
+    parser.add_argument('--parallel', action='store_true', help='Process videos in parallel')
+    parser.add_argument('--max-workers', type=int, default=2, help='Maximum number of parallel video workers (default: 2)')
+    args = parser.parse_args()
+    
+    main(parallel_videos=args.parallel, max_parallel_videos=args.max_workers) 
