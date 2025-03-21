@@ -33,7 +33,7 @@ active_connections = 0
 MAX_CONNECTIONS_PER_INSTANCE = 10
 
 
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, character_file: str):
     global active_connections
 
     # Connection limiting
@@ -58,7 +58,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # Load character configuration
         print("Loading character configuration")
-        character = loadCharacters(os.getenv("CHARACTER_FILE", "rolypoly.json"))[0]
+        character = loadCharacters(os.getenv("CHARACTER_FILE", character_file))[0]
         personality = process_character_config(character)
 
         # Combine base instructions with character config
@@ -119,7 +119,18 @@ async def health_check(request):
 routes = [
     Route("/", homepage),
     Route("/health", health_check),
-    WebSocketRoute("/ws", websocket_endpoint),
+    WebSocketRoute(
+        "/ws/rolypoly",
+        lambda scope, receive, send: websocket_endpoint(
+            scope, receive, send, character_file="rolypoly"
+        ),
+    ),
+    WebSocketRoute(
+        "/ws/chainyoda",
+        lambda scope, receive, send: websocket_endpoint(
+            scope, receive, send, character_file="chainyoda"
+        ),
+    ),
 ]
 
 app = Starlette(debug=True, routes=routes)
