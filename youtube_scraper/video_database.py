@@ -192,6 +192,30 @@ def get_unprocessed_videos(limit=5):
     
     return videos
 
+def get_segments_for_video(video_id):
+    """Get all segments for a specific video."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "SELECT id, segment_path, processed, json_output_path FROM segments WHERE video_id = ?", 
+        (video_id,)
+    )
+    
+    segments = [
+        {
+            "id": row[0], 
+            "segment_path": row[1], 
+            "processed": bool(row[2]), 
+            "json_output_path": row[3]
+        } 
+        for row in cursor.fetchall()
+    ]
+    
+    conn.close()
+    
+    return segments
+
 if __name__ == "__main__":
     # Initialize the database if run directly
     initialize_database()

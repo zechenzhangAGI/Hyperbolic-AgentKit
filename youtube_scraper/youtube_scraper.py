@@ -16,7 +16,7 @@ import argparse
 
 # Constants
 CHANNEL_URL = "https://www.youtube.com/@TheRollupCo/videos"
-NUM_VIDEOS = 10
+NUM_VIDEOS = 50
 DOWNLOAD_DIR = "downloaded_videos"
 SPLIT_DIR = "split_videos"  # Local directory for split videos
 SEGMENT_LENGTH = 600  # 10 minutes in seconds
@@ -45,6 +45,23 @@ def setup_directories():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     os.makedirs(SPLIT_DIR, exist_ok=True)
     os.makedirs("jsonoutputs", exist_ok=True)
+    
+def cleanup_partial_downloads():
+    """Clean up any partial downloads from previous interrupted runs."""
+    partial_files = 0
+    
+    # Remove .part files from download directory
+    for file in os.listdir(DOWNLOAD_DIR):
+        if file.endswith(".part") or file.endswith(".ytdl"):
+            try:
+                os.remove(os.path.join(DOWNLOAD_DIR, file))
+                partial_files += 1
+                print(f"Removed partial download file: {file}")
+            except Exception as e:
+                print(f"Error removing partial file {file}: {str(e)}")
+    
+    if partial_files > 0:
+        print(f"Cleaned up {partial_files} partial download files")
 
 def check_cookies_file():
     """Check if the cookies file exists and prompt for creation if needed."""
@@ -123,6 +140,13 @@ def download_video(video):
     
     # Create a filename that includes both the title and ID for uniqueness
     filename = f"{clean_title}_{video['id']}"
+    output_path = os.path.join(DOWNLOAD_DIR, f"{filename}.mp4")
+    
+    # Check if file already exists with the expected name
+    if os.path.exists(output_path):
+        print(f"Video file already exists: {output_path}")
+        return output_path
+        
     output_template = os.path.join(DOWNLOAD_DIR, f"{filename}.%(ext)s")
     
     ydl_opts = {
@@ -171,6 +195,19 @@ def split_video(video_path, video_id):
     basename = os.path.basename(video_path)
     filename_without_ext = os.path.splitext(basename)[0]
     
+    # Check if segments already exist in the database and on disk
+    existing_segments = vdb.get_segments_for_video(video_id)
+    if existing_segments:
+        valid_segments = []
+        for segment in existing_segments:
+            if os.path.exists(segment['segment_path']):
+                print(f"Segment already exists: {segment['segment_path']}")
+                valid_segments.append(segment['segment_path'])
+        
+        if valid_segments:
+            print(f"Using {len(valid_segments)} existing segments for video {video_id}")
+            return sorted(valid_segments)
+    
     # We'll name segments as "VideoTitle_Part001.mp4", "VideoTitle_Part002.mp4", etc.
     output_pattern = os.path.join(SPLIT_DIR, f"{filename_without_ext}_Part%03d.mp4")
     
@@ -215,6 +252,7 @@ def split_video(video_path, video_id):
                 
                 # Add segment to database
                 vdb.add_segment(video_id, segment_path)
+                print(f"Added segment to database: {segment_path}")
         
         return sorted(segments)
     except subprocess.CalledProcessError as e:
@@ -357,6 +395,9 @@ def main(parallel_videos=False, max_parallel_videos=2):
     
     # Create directories
     setup_directories()
+    
+    # Clean up any partial downloads from interrupted runs
+    cleanup_partial_downloads()
     
     # Check for cookies file
     has_cookies = check_cookies_file()
