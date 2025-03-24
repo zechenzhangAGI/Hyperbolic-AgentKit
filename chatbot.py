@@ -10,13 +10,13 @@ import asyncio
 import warnings
 
 # Import prompts
-from prompts import (
+from base_utils.prompts import (
     PODCAST_QUERY_PROMPT,
     PODCAST_TOPICS,
     PODCAST_ASPECTS,
     BASIC_QUERY_TEMPLATES
 )
-from tooldescriptions import (
+from base_utils.tooldescriptions import (
     TWITTER_REPLY_CHECK_DESCRIPTION,
     TWITTER_ADD_REPLIED_DESCRIPTION,
     TWITTER_REPOST_CHECK_DESCRIPTION,
@@ -80,7 +80,7 @@ from twitter_agent.twitter_knowledge_base import TweetKnowledgeBase, update_know
 from github_agent.custom_github_actions import GitHubAPIWrapper, create_evaluate_profiles_tool
 
 # Import local modules
-from utils import (
+from base_utils.utils import (
     Colors, 
     print_ai, 
     print_system, 

@@ -12,7 +12,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import json
-from utils import print_system, print_error
+from base_utils.utils import print_system, print_error
 
 class PodcastSegment(BaseModel):
     id: str  # We'll generate this
