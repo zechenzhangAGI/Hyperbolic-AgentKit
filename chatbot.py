@@ -91,6 +91,9 @@ from base_utils.utils import (
 )
 from podcast_agent.podcast_knowledge_base import PodcastKnowledgeBase
 
+# Add the import for WritingTool near the other imports at the top of the file
+from writing_agent.writing_tool import WritingTool
+
 async def generate_llm_podcast_query(llm: ChatAnthropic = None) -> str:
     """
     Generates a dynamic, contextually-aware query for the podcast knowledge base using an LLM.
@@ -285,6 +288,16 @@ def create_agent_tools(llm, knowledge_base, podcast_knowledge_base, agent_kit, c
     if os.getenv("USE_BROWSER_TOOLS", "true").lower() == "true":
         browser_toolkit = BrowserToolkit.from_llm(llm)
         tools.extend(browser_toolkit.get_tools())
+
+    # Add Writing Agent Tools if enabled
+    if os.getenv("USE_WRITING_AGENT", "true").lower() == "true":
+        print_system("Adding writing agent tools...")
+        # Create output directory for generated articles
+        output_dir = os.path.join(os.getcwd(), "generated_articles")
+        os.makedirs(output_dir, exist_ok=True)
+        writing_tool = WritingTool(llm=llm)
+        tools.append(writing_tool)
+        print_system(f"Added writing agent tool (output directory: {output_dir})")
 
     # Add Twitter Knowledge Base Tools if enabled
     if os.getenv("USE_TWITTER_KNOWLEDGE_BASE", "true").lower() == "true" and knowledge_base is not None:
