@@ -4,9 +4,9 @@ from hyperbolic_agentkit_core.actions.hyperbolic_action import HyperbolicAction
 from hyperbolic_agentkit_core.actions.ssh_manager import ssh_manager
 
 REMOTE_SHELL_PROMPT = """
-Execute shell commands on the remote server via SSH.
+This tool will execute shell commands on the remote server via SSH.
 
-Input parameters:
+It takes the following inputs:
 - command: The shell command to execute on the remote server
 
 Important notes:

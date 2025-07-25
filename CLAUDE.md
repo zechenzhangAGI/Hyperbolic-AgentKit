@@ -29,6 +29,27 @@ PYTHONPATH=$PWD/server/src poetry run python server/src/server/app.py
 poetry run python gradio_ui.py
 ```
 
+### LLM Configuration
+The agent supports multiple LLM providers (Anthropic, OpenAI, Google, Ollama, Harvard, Custom):
+
+```bash
+# Set default provider/model in .env
+LLM_PROVIDER=openai
+LLM_MODEL=o3
+
+# Or switch models during runtime:
+/model                    # Show current configuration
+/model openai             # Switch to OpenAI default
+/model openai o3          # Switch to OpenAI o3 model
+/model claude-sonnet-4    # Switch using alias
+/model harvard o3-mini-2025-01-31  # Use Harvard's endpoint
+/model custom_openai      # Use any OpenAI-compatible endpoint
+```
+
+Special endpoints supported:
+- **Harvard**: Custom OpenAI endpoint with `api-key` header authentication
+- **Custom OpenAI**: Any OpenAI-compatible API (vLLM, FastChat, Together AI, etc.)
+
 ### YouTube Scraper Commands
 ```bash
 # Run YouTube scraper
@@ -51,8 +72,13 @@ poetry run python db_utilities.py reset
 1. **Agent Framework**
    - `chatbot.py`: Main agent initialization and orchestration
    - Character-based personalities loaded from JSON files in `characters/`
-   - LangChain-based ReAct agent with Claude 3.5 Sonnet as the LLM
+   - LangChain-based ReAct agent with support for multiple LLMs:
+     - Anthropic (Claude 3 Opus/Sonnet/Haiku, Claude Sonnet 4)
+     - OpenAI (GPT-4, GPT-3.5, o1, o3)
+     - Google (Gemini Pro)
+     - Ollama (local models)
    - Memory persistence using LangGraph's MemorySaver
+   - Dynamic model switching during runtime via `/model` command
 
 2. **Tool Registration Flow**
    - Tools are registered in two places:

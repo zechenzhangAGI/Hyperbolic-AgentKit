@@ -45,22 +45,9 @@ from langchain_community.utilities.requests import TextRequestsWrapper
 from langchain.tools import Tool
 from langchain_core.runnables import RunnableConfig
 from browser_agent import BrowserToolkit
+from base_utils.llm_factory import LLMFactory, LLMConfig
 
-# Import Coinbase AgentKit related modules
-from coinbase_agentkit import (
-    AgentKit,
-    AgentKitConfig,
-    CdpWalletProvider,
-    CdpWalletProviderConfig,
-    cdp_api_action_provider,
-    cdp_wallet_action_provider,
-    erc20_action_provider,
-    pyth_action_provider,
-    wallet_action_provider,
-    weth_action_provider,
-    twitter_action_provider,
-)
-from coinbase_agentkit_langchain import get_langchain_tools
+# Coinbase imports will be done conditionally based on USE_COINBASE_TOOLS
 
 # Import Hyperbolic related modules
 from hyperbolic_langchain.agent_toolkits import HyperbolicToolkit
@@ -93,19 +80,21 @@ from podcast_agent.podcast_knowledge_base import PodcastKnowledgeBase
 
 # Add the import for WritingTool near the other imports at the top of the file
 from writing_agent.writing_tool import WritingTool
+from base_utils.llm_commands import LLMCommands
 
-async def generate_llm_podcast_query(llm: ChatAnthropic = None) -> str:
+async def generate_llm_podcast_query(llm = None) -> str:
     """
     Generates a dynamic, contextually-aware query for the podcast knowledge base using an LLM.
     Uses various prompting techniques to create unique and insightful queries.
     
     Args:
-        llm: ChatAnthropic instance. If None, creates a new one.
+        llm: LLM instance. If None, creates a new one.
         
     Returns:
         str: A generated query string
     """
-    llm = ChatAnthropic(model="claude-3-5-haiku-20241022")
+    if llm is None:
+        llm = LLMFactory.create_llm()
     
     # Format the prompt with random selections
     prompt = PODCAST_QUERY_PROMPT.format(
@@ -137,7 +126,7 @@ async def generate_podcast_query() -> str:
     """
     try:
         # Create LLM instance
-        llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
+        llm = ChatAnthropic(model="claude-sonnet-4-20250514")
         # Get LLM-generated query
         query = await generate_llm_podcast_query(llm)
         return query
@@ -370,8 +359,9 @@ def create_agent_tools(llm, knowledge_base, podcast_knowledge_base, agent_kit, c
     
 
     # Add Coinbase AgentKit tools (blockchain/wallet/twitter operations)
-    if os.getenv("USE_COINBASE_TOOLS", "true").lower() == "true":
+    if os.getenv("USE_COINBASE_TOOLS", "true").lower() == "true" and agent_kit is not None:
         print_system("Adding Coinbase AgentKit tools...")
+        from coinbase_agentkit_langchain import get_langchain_tools
         coinbase_tools = get_langchain_tools(agent_kit)
         tools.extend(coinbase_tools)
         print_system(f"Added {len(coinbase_tools)} Coinbase tools")
@@ -401,8 +391,12 @@ def create_agent_tools(llm, knowledge_base, podcast_knowledge_base, agent_kit, c
 async def initialize_agent():
     """Initialize the agent with tools and configuration."""
     try:
-        print_system("Initializing LLM...")
-        llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
+        # Get LLM configuration from environment
+        provider = os.getenv("LLM_PROVIDER", "anthropic")
+        model = os.getenv("LLM_MODEL")
+        
+        print_system(f"Initializing LLM with provider: {provider}, model: {model or 'default'}...")
+        llm = LLMFactory.create_llm(provider=provider, model=model)
 
         print_system("Loading character configuration...")
         try:
@@ -441,41 +435,61 @@ async def initialize_agent():
         print_system("Initializing knowledge bases...")
         knowledge_base = None
         podcast_knowledge_base = None
+        agent_kit = None
 
-        # Configure Coinbase AgentKit first
-        print_system("Initializing Coinbase AgentKit...")
-        wallet_data = None
-        if os.path.exists(wallet_data_file):
-            with open(wallet_data_file) as f:
-                wallet_data = f.read()
+        # Configure Coinbase AgentKit if enabled
+        if os.getenv("USE_COINBASE_TOOLS", "true").lower() == "true":
+            print_system("Initializing Coinbase AgentKit...")
+            
+            # Import Coinbase modules only when needed
+            from coinbase_agentkit import (
+                AgentKit,
+                AgentKitConfig,
+                CdpWalletProvider,
+                CdpWalletProviderConfig,
+                cdp_api_action_provider,
+                cdp_wallet_action_provider,
+                erc20_action_provider,
+                pyth_action_provider,
+                wallet_action_provider,
+                weth_action_provider,
+                twitter_action_provider,
+            )
+            
+            wallet_data = None
+            if os.path.exists(wallet_data_file):
+                with open(wallet_data_file) as f:
+                    wallet_data = f.read()
 
-        # Configure wallet provider with all available action providers
-        wallet_provider = CdpWalletProvider(CdpWalletProviderConfig(
-            api_key_name=os.getenv("CDP_API_KEY_NAME"),
-            api_key_private=os.getenv("CDP_API_KEY_PRIVATE"),
-            network_id=os.getenv("CDP_NETWORK_ID", "base-mainnet"),
-            wallet_data=wallet_data if wallet_data else None
-        ))
+            # Configure wallet provider with all available action providers
+            wallet_provider = CdpWalletProvider(CdpWalletProviderConfig(
+                api_key_name=os.getenv("CDP_API_KEY_NAME"),
+                api_key_private=os.getenv("CDP_API_KEY_PRIVATE"),
+                network_id=os.getenv("CDP_NETWORK_ID", "base-mainnet"),
+                wallet_data=wallet_data if wallet_data else None
+            ))
 
-        # Initialize AgentKit with all action providers
-        agent_kit = AgentKit(AgentKitConfig(
-            wallet_provider=wallet_provider,
-            action_providers=[
-                cdp_api_action_provider(),
-                cdp_wallet_action_provider(),
-                erc20_action_provider(),
-                pyth_action_provider(),
-                wallet_action_provider(),
-                weth_action_provider(),
-                twitter_action_provider(),
-            ]
-        ))
-        
-        # Save wallet data
-        if not wallet_data:
-            wallet_data = json.dumps(wallet_provider.export_wallet().to_dict())
-            with open(wallet_data_file, "w") as f:
-                f.write(wallet_data)
+            # Initialize AgentKit with all action providers
+            agent_kit = AgentKit(AgentKitConfig(
+                wallet_provider=wallet_provider,
+                action_providers=[
+                    cdp_api_action_provider(),
+                    cdp_wallet_action_provider(),
+                    erc20_action_provider(),
+                    pyth_action_provider(),
+                    wallet_action_provider(),
+                    weth_action_provider(),
+                    twitter_action_provider(),
+                ]
+            ))
+            
+            # Save wallet data
+            if not wallet_data:
+                wallet_data = json.dumps(wallet_provider.export_wallet().to_dict())
+                with open(wallet_data_file, "w") as f:
+                    f.write(wallet_data)
+        else:
+            print_system("Coinbase tools disabled (USE_COINBASE_TOOLS=false)")
 
         # Twitter Knowledge Base initialization
         while True:
@@ -680,6 +694,8 @@ async def run_chat_mode(agent_executor, config, runnable_config):
     print_system("Commands:")
     print_system("  exit     - Exit the chat")
     print_system("  status   - Check if agent is responsive")
+    print_system("  /model   - Switch LLM provider/model")
+    print_system("  /help    - Show help for commands")
     
     # Create the runnable config with required keys
     runnable_config = RunnableConfig(
@@ -703,6 +719,14 @@ async def run_chat_mode(agent_executor, config, runnable_config):
                 break
             elif user_input.lower() == "status":
                 print_system("Agent is responsive and ready for commands.")
+                continue
+            elif user_input.startswith("/model"):
+                # Handle model switching command
+                if LLMCommands.handle_model_command(user_input):
+                    continue
+            elif user_input.lower() == "/help":
+                # Show help for commands
+                LLMCommands.show_help()
                 continue
             
             print_system(f"\nStarted at: {datetime.now().strftime('%H:%M:%S')}")
